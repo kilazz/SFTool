@@ -19,15 +19,6 @@ A complete, high-performance, and lightweight modding suite for **SpellForce 1 &
   * **Format C** (Developer Table - CP1252 / ANSI)
 * **Translation Suite:** Export detected text datasets into clean, sorted JSON files for easy translation, and automatically compile edited JSON files back into binary database chunks.
 
-### 🔍 Binary Chunk Inspector
-* **String Scanner:** Scan binary `.dat` chunks for plain printable ASCII strings or asset paths, with on-the-fly search filtering.
-* **Value Modifier:** Safely inspect, read, and overwrite values directly at any decimal or hex offset. Supports multiple raw data types:
-  * `Byte` (uint8)
-  * `Int16` (short)
-  * `Int32` (int)
-  * `Float32`
-  * `String` (ANSI string with automatic null-termination)
-
 ## How to Build & Run
 
 ### Prerequisites
