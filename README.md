@@ -5,7 +5,7 @@ A complete, high-performance, and lightweight modding suite for **SpellForce 1 &
 
 ### 📦 PAK Archive Management
 * **Interactive TreeView:** Explore archive structures with a fully collapsible and expandable directory explorer tree (with hover highlights and folder icons).
-* **Unpack:** Extract individual `.pak` files (auto-detects legacy SpellForce 1 and SpellForce 2 formats).
+* **Unpack:** Extract individual `.pak` files (auto-detects legacy SpellForce 1 & 2 formats).
 * **Pack:** Compile directories into fully valid SpellForce 2 `.pak` archives with adjustable Zlib compression.
 * **Batch Operations:**
   * Batch unpack all `.pak` archives found within a selected directory into individual folders.
