@@ -1,4 +1,11 @@
-import { LineEdit, StandardListView, ListView, ComboBox, SpinBox, TextEdit } from "std-widgets.slint";
+import {
+    LineEdit,
+    StandardListView,
+    ListView,
+    ComboBox,
+    SpinBox,
+    TextEdit,
+} from "std-widgets.slint";
 
 // Custom Premium Dark Button Component with Text Overflow Protection
 component ToolButton inherits Rectangle {
@@ -88,38 +95,49 @@ export component AppWindow inherits Window {
                 font-weight: root.active_tab == 0 ? 800 : 500;
                 color: root.active_tab == 0 ? #FFFFFF : #6F6F6F;
                 vertical-alignment: center;
-                TouchArea { clicked => { root.active_tab = 0; } }
+                TouchArea {
+                    clicked => { root.active_tab = 0; }
+                }
             }
+
             Text {
                 text: "CFF DATABASE";
                 font-size: 14px;
                 font-weight: root.active_tab == 1 ? 800 : 500;
                 color: root.active_tab == 1 ? #FFFFFF : #6F6F6F;
                 vertical-alignment: center;
-                TouchArea { clicked => { root.active_tab = 1; } }
+                TouchArea {
+                    clicked => { root.active_tab = 1; }
+                }
             }
+
             Text {
                 text: "CHUNK INSPECTOR";
                 font-size: 14px;
                 font-weight: root.active_tab == 2 ? 800 : 500;
                 color: root.active_tab == 2 ? #FFFFFF : #6F6F6F;
                 vertical-alignment: center;
-                TouchArea { clicked => { root.active_tab = 2; } }
+                TouchArea {
+                    clicked => { root.active_tab = 2; }
+                }
             }
+
             Text {
                 text: "TERMINAL";
                 font-size: 14px;
                 font-weight: root.active_tab == 3 ? 800 : 500;
                 color: root.active_tab == 3 ? #FFFFFF : #6F6F6F;
                 vertical-alignment: center;
-                TouchArea { clicked => { root.active_tab = 3; } }
+                TouchArea {
+                    clicked => { root.active_tab = 3; }
+                }
             }
         }
 
         Text {
             text: root.active_tab == 0 ? "SpellForce Pak Tool" :
-                  (root.active_tab == 1 ? "CFF Database Container Tool" :
-                  (root.active_tab == 2 ? "Binary Chunk Inspector" : "Progress Terminal"));
+                (root.active_tab == 1 ? "CFF Database Container Tool" :
+                (root.active_tab == 2 ? "Binary Chunk Inspector" : "Progress Terminal"));
             font-size: 26px;
             font-weight: 800;
             color: #FFFFFF;
@@ -137,15 +155,22 @@ export component AppWindow inherits Window {
                 border-width: 1px;
                 border-radius: 8px;
 
-                if (root.active_tab == 0) : VerticalLayout {
+                if (root.active_tab == 0): VerticalLayout {
                     spacing: 12px;
                     padding: 18px;
 
-                    Text { text: "Unpack Archive"; font-size: 14px; font-weight: 700; color: #FFFFFF; }
+                    Text {
+                        text: "Unpack Archive";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: #FFFFFF;
+                    }
+
                     ToolButton {
                         text: root.selected_pak == "" ? "Open .PAK Archive" : "Selected: " + root.selected_pak;
                         clicked => { root.selected_pak = root.browse_file("pak"); }
                     }
+
                     ToolButton {
                         text: "Extract All";
                         enabled: root.selected_pak != "";
@@ -154,6 +179,7 @@ export component AppWindow inherits Window {
                             if (out_path != "") { root.unpack_pak(root.selected_pak, out_path); }
                         }
                     }
+
                     ToolButton {
                         text: "Batch Unpack All .PAK";
                         clicked => {
@@ -162,34 +188,62 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    Rectangle { height: 1px; background: #2C2C2C; }
+                    Rectangle {
+                        height: 1px;
+                        background: #2C2C2C;
+                    }
 
-                    Text { text: "Pack Archive"; font-size: 14px; font-weight: 700; color: #FFFFFF; }
+                    Text {
+                        text: "Pack Archive";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: #FFFFFF;
+                    }
+
                     ToolButton {
                         text: root.selected_folder == "" ? "Select Folder" : "Selected Folder: " + root.selected_folder;
                         clicked => { root.selected_folder = root.browse_folder(); }
                     }
+
                     HorizontalLayout {
                         spacing: 10px;
-                        Text { text: "Format:"; color: #AAAAAA; vertical-alignment: center; width: 65px; }
+                        Text {
+                            text: "Format:";
+                            color: #AAAAAA;
+                            vertical-alignment: center;
+                            width: 65px;
+                        }
+
                         pak_fmt := ComboBox {
                             model: ["SpellForce 2 (.pak)", "SpellForce 1 (.pak)"];
                             current-value <=> root.persisted_pak_fmt;
                         }
                     }
 
-                    if (root.persisted_pak_fmt == "SpellForce 1 (.pak)") : HorizontalLayout {
+                    if (root.persisted_pak_fmt == "SpellForce 1 (.pak)"): HorizontalLayout {
                         spacing: 10px;
-                        Text { text: "SF1 Mode:"; color: #AAAAAA; vertical-alignment: center; width: 65px; }
+                        Text {
+                            text: "SF1 Mode:";
+                            color: #AAAAAA;
+                            vertical-alignment: center;
+                            width: 65px;
+                        }
+
                         ComboBox {
                             model: ["Meta-Template (100% Stable)", "From Scratch"];
                             current-value <=> root.persisted_sf1_mode;
                         }
                     }
 
-                    if (root.persisted_pak_fmt != "SpellForce 1 (.pak)") : HorizontalLayout {
+                    if (root.persisted_pak_fmt != "SpellForce 1 (.pak)"): HorizontalLayout {
                         spacing: 10px;
-                        Text { text: "Zlib Level:"; color: #AAAAAA; vertical-alignment: center; width: 65px; }
+                        Text {
+                            text: "Zlib Level:";
+                            color: #AAAAAA;
+                            vertical-alignment: center;
+                            width: 65px;
+                        }
+
                         SpinBox {
                             value <=> root.persisted_pak_comp;
                             minimum: 0;
@@ -205,6 +259,7 @@ export component AppWindow inherits Window {
                             if (target != "") { root.pack_pak(root.selected_folder, target, root.persisted_pak_fmt, root.persisted_pak_comp, root.persisted_sf1_mode); }
                         }
                     }
+
                     ToolButton {
                         text: "Batch Pack Folders";
                         clicked => {
@@ -212,18 +267,28 @@ export component AppWindow inherits Window {
                             if (root_folder != "") { root.batch_pack_pak(root_folder, root.persisted_pak_fmt, root.persisted_pak_comp, root.persisted_sf1_mode); }
                         }
                     }
-                    Rectangle { vertical-stretch: 1; }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                    }
                 }
 
-                if (root.active_tab == 1) : VerticalLayout {
+                if (root.active_tab == 1): VerticalLayout {
                     spacing: 14px;
                     padding: 18px;
 
-                    Text { text: "Unpack CFF Container"; font-size: 14px; font-weight: 700; color: #FFFFFF; }
+                    Text {
+                        text: "Unpack CFF Container";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: #FFFFFF;
+                    }
+
                     ToolButton {
                         text: root.selected_cff == "" ? "Open .CFF Database" : "Selected: " + root.selected_cff;
                         clicked => { root.selected_cff = root.browse_file("cff"); }
                     }
+
                     ToolButton {
                         text: "Unpack Database & Text JSONs";
                         enabled: root.selected_cff != "";
@@ -233,22 +298,39 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    Rectangle { height: 1px; background: #2C2C2C; }
+                    Rectangle {
+                        height: 1px;
+                        background: #2C2C2C;
+                    }
 
-                    Text { text: "Compile & Pack CFF"; font-size: 14px; font-weight: 700; color: #FFFFFF; }
+                    Text {
+                        text: "Compile & Pack CFF";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: #FFFFFF;
+                    }
+
                     ToolButton {
                         text: root.selected_cff_dir == "" ? "Select Work Directory" : "Selected: " + root.selected_cff_dir;
                         clicked => { root.selected_cff_dir = root.browse_folder(); }
                     }
+
                     HorizontalLayout {
                         spacing: 10px;
-                        Text { text: "Zlib Level:"; color: #AAAAAA; vertical-alignment: center; width: 80px; }
+                        Text {
+                            text: "Zlib Level:";
+                            color: #AAAAAA;
+                            vertical-alignment: center;
+                            width: 80px;
+                        }
+
                         SpinBox {
                             value <=> root.persisted_cff_comp;
                             minimum: 0;
                             maximum: 9;
                         }
                     }
+
                     ToolButton {
                         text: "Compile & Pack to .CFF";
                         enabled: root.selected_cff_dir != "";
@@ -257,14 +339,23 @@ export component AppWindow inherits Window {
                             if (target != "") { root.pack_cff(root.selected_cff_dir, target, root.persisted_cff_comp); }
                         }
                     }
-                    Rectangle { vertical-stretch: 1; }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                    }
                 }
 
-                if (root.active_tab == 2) : VerticalLayout {
+                if (root.active_tab == 2): VerticalLayout {
                     spacing: 14px;
                     padding: 18px;
 
-                    Text { text: "Open File"; font-size: 14px; font-weight: 700; color: #FFFFFF; }
+                    Text {
+                        text: "Open File";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: #FFFFFF;
+                    }
+
                     ToolButton {
                         text: root.selected_dat == "" ? "Open .DAT Chunk File" : "Selected: " + root.selected_dat;
                         clicked => { root.selected_dat = root.browse_file("dat"); }
@@ -272,16 +363,29 @@ export component AppWindow inherits Window {
 
                     HorizontalLayout {
                         spacing: 10px;
-                        Text { text: "Filter:"; color: #AAAAAA; vertical-alignment: center; width: 60px; }
-                        filter_in := LineEdit { text <=> root.filter_text; font-family: "Consolas"; }
+                        Text {
+                            text: "Filter:";
+                            color: #AAAAAA;
+                            vertical-alignment: center;
+                            width: 60px;
+                        }
+
+                        filter_in := LineEdit {
+                            text <=> root.filter_text;
+                            font-family: "Consolas";
+                        }
                     }
+
                     ToolButton {
                         text: "Scan Binary Strings";
                         enabled: root.selected_dat != "";
                         clicked => { root.scan_binary(root.selected_dat, root.filter_text); }
                     }
 
-                    Rectangle { height: 1px; background: #2C2C2C; }
+                    Rectangle {
+                        height: 1px;
+                        background: #2C2C2C;
+                    }
 
                     StandardListView {
                         model: root.inspector_results;
@@ -289,7 +393,7 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if (root.active_tab == 3) : VerticalLayout {
+                if (root.active_tab == 3): VerticalLayout {
                     alignment: center;
                     padding: 18px;
                     Text {
@@ -307,7 +411,7 @@ export component AppWindow inherits Window {
                 border-width: 1px;
                 border-radius: 8px;
 
-                if (root.active_tab == 0 || root.active_tab == 1) : VerticalLayout {
+                if (root.active_tab == 0 || root.active_tab == 1): VerticalLayout {
                     padding: 10px;
                     ListView {
                         for item[index] in root.archive_files: Rectangle {
@@ -323,6 +427,7 @@ export component AppWindow inherits Window {
                                     vertical-alignment: center;
                                 }
                             }
+
                             ta := TouchArea {
                                 clicked => {
                                     root.archive_item_clicked(index);
@@ -332,16 +437,40 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                if (root.active_tab == 2) : VerticalLayout {
+                if (root.active_tab == 2): VerticalLayout {
                     padding: 20px;
                     spacing: 12px;
 
-                    Text { text: "Value Modifier & Hex Inspector"; font-size: 15px; font-weight: 700; color: #FFFFFF; }
+                    Text {
+                        text: "Value Modifier & Hex Inspector";
+                        font-size: 15px;
+                        font-weight: 700;
+                        color: #FFFFFF;
+                    }
 
-                    HorizontalLayout { Text { text: "Target Offset:"; color: #AAAAAA; width: 120px; } offset_in := LineEdit { text: "0"; } }
                     HorizontalLayout {
-                        Text { text: "Data Type:"; color: #AAAAAA; width: 120px; }
-                        type_in := ComboBox { model: ["Byte", "Int16", "Int32", "Float32", "String"]; current-value: "Int16"; }
+                        Text {
+                            text: "Target Offset:";
+                            color: #AAAAAA;
+                            width: 120px;
+                        }
+
+                        offset_in := LineEdit {
+                            text: "0";
+                        }
+                    }
+
+                    HorizontalLayout {
+                        Text {
+                            text: "Data Type:";
+                            color: #AAAAAA;
+                            width: 120px;
+                        }
+
+                        type_in := ComboBox {
+                            model: ["Byte", "Int16", "Int32", "Float32", "String"];
+                            current-value: "Int16";
+                        }
                     }
 
                     ToolButton {
@@ -349,9 +478,29 @@ export component AppWindow inherits Window {
                         enabled: root.selected_dat != "";
                         clicked => { current_val.text = root.read_value(root.selected_dat, offset_in.text, type_in.current-value); }
                     }
-                    HorizontalLayout { Text { text: "Current Value:"; color: #AAAAAA; width: 120px; } current_val := LineEdit { read-only: true; } }
 
-                    HorizontalLayout { Text { text: "New Value:"; color: #AAAAAA; width: 120px; } new_val := LineEdit {} }
+                    HorizontalLayout {
+                        Text {
+                            text: "Current Value:";
+                            color: #AAAAAA;
+                            width: 120px;
+                        }
+
+                        current_val := LineEdit {
+                            read-only: true;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        Text {
+                            text: "New Value:";
+                            color: #AAAAAA;
+                            width: 120px;
+                        }
+
+                        new_val := LineEdit { }
+                    }
+
                     ToolButton {
                         text: "Write to Binary File";
                         enabled: root.selected_dat != "";
@@ -360,10 +509,13 @@ export component AppWindow inherits Window {
                             root.scan_binary(root.selected_dat, root.filter_text);
                         }
                     }
-                    Rectangle { vertical-stretch: 1; }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                    }
                 }
 
-                if (root.active_tab == 3) : VerticalLayout {
+                if (root.active_tab == 3): VerticalLayout {
                     padding: 10px;
                     TextEdit {
                         text <=> root.log_text;
@@ -381,7 +533,13 @@ export component AppWindow inherits Window {
             border-color: #2C2C2C;
             border-width: 1px;
             border-radius: 4px;
-            Text { x: 10px; color: #4CAF50; text: root.status_msg; vertical-alignment: center; font-size: 13px; }
+            Text {
+                x: 10px;
+                color: #4CAF50;
+                text: root.status_msg;
+                vertical-alignment: center;
+                font-size: 13px;
+            }
         }
     }
 }
