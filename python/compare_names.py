@@ -1,5 +1,5 @@
-import struct
 import os
+import struct
 
 
 def compare(original_pak, source_dir):
@@ -58,8 +58,7 @@ def compare(original_pak, source_dir):
     our_files = []
     for file_path in files:
         rel_path = os.path.relpath(file_path, source_dir).replace("/", "\\")
-        if rel_path.startswith(".\\"):
-            rel_path = rel_path[2:]
+        rel_path = rel_path.removeprefix(".\\")
         dir_name = os.path.dirname(rel_path)
         file_name = os.path.basename(rel_path)
         if dir_name:
@@ -79,7 +78,7 @@ def compare(original_pak, source_dir):
     diff_orig = orig_set - our_set
     if diff_orig:
         for s in sorted(diff_orig):
-            print(f"  - {repr(s)}")
+            print(f"  - {s!r}")
     else:
         print("  (empty)")
 
@@ -87,7 +86,7 @@ def compare(original_pak, source_dir):
     diff_ours = our_set - orig_set
     if diff_ours:
         for s in sorted(diff_ours):
-            print(f"  - {repr(s)}")
+            print(f"  - {s!r}")
     else:
         print("  (empty)")
 

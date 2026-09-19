@@ -36,13 +36,22 @@ struct Manifest {
     chunks: Vec<ChunkManifest>,
 }
 
-#[derive(PartialEq)]
+#[derive(Serialize, Deserialize)]
+struct ChunkMeta {
+    format: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_strings: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    extra_bytes: Option<usize>,
+}
+
+#[derive(PartialEq, Debug)]
 enum ChunkFormat {
     Binary,
     Fixed566,
     StringTable,              // Format A
     DeveloperTable,           // Format C
-    TableBased(usize, usize), // Format B
+    TableBased(usize, usize), // Format B: (num_strings, extra_bytes)
 }
 
 struct TableBasedEntry {
@@ -56,22 +65,35 @@ struct TableBasedEntry {
 // -----------------------------------------------------------------------------
 
 pub fn decode_windows(bytes: &[u8]) -> String {
-    let (cow, _, had_errors) = WINDOWS_1252.decode(bytes);
-    if had_errors {
-        let (cow_cyrillic, _, _) = WINDOWS_1251.decode(bytes);
-        cow_cyrillic.into_owned()
-    } else {
-        cow.into_owned()
+    if let Ok(utf8_str) = std::str::from_utf8(bytes) {
+        return utf8_str.to_string();
     }
+
+    let cyrillic_hits = bytes.iter().filter(|&&b| b >= 0xC0).count();
+    if cyrillic_hits > 0 {
+        let (cow, _, had_errors) = WINDOWS_1251.decode(bytes);
+        if !had_errors {
+            return cow.into_owned();
+        }
+    }
+
+    let (cow, _, _) = WINDOWS_1252.decode(bytes);
+    cow.into_owned()
 }
 
 pub fn encode_windows(text: &str) -> Vec<u8> {
-    let (cow, _, had_errors) = WINDOWS_1252.encode(text);
-    if had_errors {
-        let (cow_cyrillic, _, _) = WINDOWS_1251.encode(text);
-        cow_cyrillic.into_owned()
-    } else {
+    let has_cyrillic = text.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c));
+    if has_cyrillic {
+        let (cow, _, _) = WINDOWS_1251.encode(text);
         cow.into_owned()
+    } else {
+        let (cow, _, had_errors) = WINDOWS_1252.encode(text);
+        if had_errors {
+            let (cow_cyrillic, _, _) = WINDOWS_1251.encode(text);
+            cow_cyrillic.into_owned()
+        } else {
+            cow.into_owned()
+        }
     }
 }
 
@@ -84,7 +106,6 @@ fn detect_format(data: &[u8]) -> ChunkFormat {
         return ChunkFormat::Binary;
     }
 
-    // Detect Fixed 566 format
     if data.len() >= 566 && data.len().is_multiple_of(566) {
         let mut is_f566 = true;
         for i in 0..std::cmp::min(5, data.len() / 566) {
@@ -113,11 +134,11 @@ fn detect_format(data: &[u8]) -> ChunkFormat {
             break;
         }
         offset += 6;
+
         if offset + 4 > data.len() {
             is_c = false;
             break;
         }
-
         let mut len_cursor = Cursor::new(&data[offset..offset + 4]);
         let name_len = len_cursor.read_u32::<LittleEndian>().unwrap_or(0xFFFFFF) as usize;
         if name_len > 100_000 || offset + 4 + name_len > data.len() {
@@ -130,7 +151,6 @@ fn detect_format(data: &[u8]) -> ChunkFormat {
             is_c = false;
             break;
         }
-
         let mut key_cursor = Cursor::new(&data[offset..offset + 4]);
         let key_len = key_cursor.read_u32::<LittleEndian>().unwrap_or(0xFFFFFF) as usize;
         if key_len > 1000 || offset + 4 + key_len > data.len() {
@@ -165,7 +185,6 @@ fn detect_format(data: &[u8]) -> ChunkFormat {
             is_a = false;
             break;
         }
-
         let mut text_cursor = Cursor::new(&data[offset..offset + 4]);
         let text_len = text_cursor.read_u32::<LittleEndian>().unwrap_or(0xFFFFFF) as usize;
         if text_len > 100_000 || offset + 4 + (text_len * 2) > data.len() {
@@ -179,8 +198,8 @@ fn detect_format(data: &[u8]) -> ChunkFormat {
     }
 
     // Detect Table Based (Format B)
-    for e in 0..17 {
-        for n in 1..6 {
+    for e in 0..=32 {
+        for n in 1..=10 {
             let mut is_b = true;
             offset = 4;
             for _ in 0..count {
@@ -219,108 +238,143 @@ fn detect_format(data: &[u8]) -> ChunkFormat {
 
 fn export_text(data: &[u8], json_path: &Path, format: ChunkFormat) -> io::Result<()> {
     let mut texts: BTreeMap<String, String> = BTreeMap::new();
+    let meta_path = json_path.with_extension("meta.json");
 
-    if format == ChunkFormat::Fixed566 {
-        let mut offset = 0;
-        while offset + 566 <= data.len() {
-            let block = &data[offset..offset + 566];
-            let str_id = Cursor::new(&block[0..4]).read_u32::<LittleEndian>()?;
-            let mut text_bytes = &block[54..566];
-            if let Some(null_idx) = text_bytes.iter().position(|&b| b == 0) {
-                text_bytes = &text_bytes[..null_idx];
+    let chunk_meta = match format {
+        ChunkFormat::Fixed566 => {
+            let mut offset = 0;
+            while offset + 566 <= data.len() {
+                let block = &data[offset..offset + 566];
+                let str_id = Cursor::new(&block[0..4]).read_u32::<LittleEndian>()?;
+                let mut text_bytes = &block[54..566];
+                if let Some(null_idx) = text_bytes.iter().position(|&b| b == 0) {
+                    text_bytes = &text_bytes[..null_idx];
+                }
+                texts.insert(
+                    format!("f566_{:08}_{}", offset, str_id),
+                    decode_windows(text_bytes),
+                );
+                offset += 566;
             }
-            texts.insert(
-                format!("f566_{}_{}", offset, str_id),
-                decode_windows(text_bytes),
-            );
-            offset += 566;
+            ChunkMeta {
+                format: "fixed_566".to_string(),
+                num_strings: None,
+                extra_bytes: None,
+            }
         }
-    } else {
-        let mut cursor = Cursor::new(data);
-        let count = cursor.read_u32::<LittleEndian>()?;
-        let mut offset = 4;
+        ChunkFormat::StringTable => {
+            let mut cursor = Cursor::new(data);
+            let count = cursor.read_u32::<LittleEndian>()?;
+            let mut offset = 4;
 
-        match format {
-            ChunkFormat::StringTable => {
-                for _ in 0..count {
-                    offset += 1;
-                    let mut c = Cursor::new(&data[offset..offset + 4]);
-                    let key_len = c.read_u32::<LittleEndian>()? as usize;
-                    offset += 4;
-                    let key = String::from_utf8_lossy(&data[offset..offset + key_len]).into_owned();
-                    offset += key_len;
+            for _ in 0..count {
+                offset += 1;
+                let mut c = Cursor::new(&data[offset..offset + 4]);
+                let key_len = c.read_u32::<LittleEndian>()? as usize;
+                offset += 4;
+                let key = String::from_utf8_lossy(&data[offset..offset + key_len]).into_owned();
+                offset += key_len;
 
+                let mut c = Cursor::new(&data[offset..offset + 4]);
+                let text_len = c.read_u32::<LittleEndian>()? as usize;
+                offset += 4;
+                let u16_slice: Vec<u16> = data[offset..offset + text_len * 2]
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|&ch| u16::from_le_bytes(ch))
+                    .collect();
+                let text = String::from_utf16_lossy(&u16_slice);
+                offset += text_len * 2;
+                texts.insert(key, text);
+            }
+            ChunkMeta {
+                format: "string_table".to_string(),
+                num_strings: None,
+                extra_bytes: None,
+            }
+        }
+        ChunkFormat::DeveloperTable => {
+            let mut cursor = Cursor::new(data);
+            let count = cursor.read_u32::<LittleEndian>()?;
+            let mut offset = 4;
+
+            for i in 0..count {
+                offset += 1;
+                let mut c = Cursor::new(&data[offset..offset + 4]);
+                let id_val = c.read_u32::<LittleEndian>()?;
+                offset += 4;
+
+                let flag = data[offset];
+                offset += 1;
+
+                let mut c = Cursor::new(&data[offset..offset + 4]);
+                let name_len = c.read_u32::<LittleEndian>()? as usize;
+                offset += 4;
+                let name = decode_windows(&data[offset..offset + name_len]);
+                offset += name_len;
+
+                let mut c = Cursor::new(&data[offset..offset + 4]);
+                let key_len = c.read_u32::<LittleEndian>()? as usize;
+                offset += 4;
+                let key_str = decode_windows(&data[offset..offset + key_len]);
+                offset += key_len;
+
+                texts.insert(format!("{:05}_{}_{}_{}", i, id_val, flag, key_str), name);
+            }
+            ChunkMeta {
+                format: "developer_table".to_string(),
+                num_strings: None,
+                extra_bytes: None,
+            }
+        }
+        ChunkFormat::TableBased(num_strings, extra_bytes) => {
+            let mut cursor = Cursor::new(data);
+            let count = cursor.read_u32::<LittleEndian>()?;
+            let mut offset = 4;
+
+            for i in 0..count {
+                let mut c = Cursor::new(&data[offset..offset + 4]);
+                let id_val = c.read_u32::<LittleEndian>()?;
+                offset += 4;
+
+                let extra_slice = &data[offset..offset + extra_bytes];
+                let extra_hex: String = extra_slice.iter().map(|b| format!("{:02x}", b)).collect();
+                offset += extra_bytes;
+
+                for s in 0..num_strings {
                     let mut c = Cursor::new(&data[offset..offset + 4]);
-                    let text_len = c.read_u32::<LittleEndian>()? as usize;
+                    let str_len = c.read_u32::<LittleEndian>()? as usize;
                     offset += 4;
-                    let u16_slice: Vec<u16> = data[offset..offset + text_len * 2]
-                        .chunks_exact(2)
-                        .map(|ch| u16::from_le_bytes([ch[0], ch[1]]))
+
+                    let u16_slice: Vec<u16> = data[offset..offset + str_len * 2]
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|&ch| u16::from_le_bytes(ch))
                         .collect();
                     let text = String::from_utf16_lossy(&u16_slice);
-                    offset += text_len * 2;
-                    texts.insert(key, text);
+                    offset += str_len * 2;
+
+                    texts.insert(format!("{:05}_{}_{}_str{}", i, id_val, extra_hex, s), text);
                 }
             }
-            ChunkFormat::DeveloperTable => {
-                for i in 0..count {
-                    offset += 1;
-                    let mut c = Cursor::new(&data[offset..offset + 4]);
-                    let id_val = c.read_u32::<LittleEndian>()?;
-                    offset += 4;
-
-                    let flag = data[offset];
-                    offset += 1;
-
-                    let mut c = Cursor::new(&data[offset..offset + 4]);
-                    let name_len = c.read_u32::<LittleEndian>()? as usize;
-                    offset += 4;
-                    let name = decode_windows(&data[offset..offset + name_len]);
-                    offset += name_len;
-
-                    let mut c = Cursor::new(&data[offset..offset + 4]);
-                    let key_len = c.read_u32::<LittleEndian>()? as usize;
-                    offset += 4;
-                    let key_str = decode_windows(&data[offset..offset + key_len]);
-                    offset += key_len;
-
-                    texts.insert(format!("{}_{}_{}_{}", i, id_val, flag, key_str), name);
-                }
+            ChunkMeta {
+                format: "table_based".to_string(),
+                num_strings: Some(num_strings),
+                extra_bytes: Some(extra_bytes),
             }
-            ChunkFormat::TableBased(num_strings, extra_bytes) => {
-                for i in 0..count {
-                    let mut c = Cursor::new(&data[offset..offset + 4]);
-                    let id_val = c.read_u32::<LittleEndian>()?;
-                    offset += 4;
-
-                    let extra_slice = &data[offset..offset + extra_bytes];
-                    let extra_hex: String =
-                        extra_slice.iter().map(|b| format!("{:02x}", b)).collect();
-                    offset += extra_bytes;
-
-                    for s in 0..num_strings {
-                        let mut c = Cursor::new(&data[offset..offset + 4]);
-                        let str_len = c.read_u32::<LittleEndian>()? as usize;
-                        offset += 4;
-
-                        let u16_slice: Vec<u16> = data[offset..offset + str_len * 2]
-                            .chunks_exact(2)
-                            .map(|ch| u16::from_le_bytes([ch[0], ch[1]]))
-                            .collect();
-                        let text = String::from_utf16_lossy(&u16_slice);
-                        offset += str_len * 2;
-
-                        texts.insert(format!("{}_{}_{}_str{}", i, id_val, extra_hex, s), text);
-                    }
-                }
-            }
-            _ => {}
         }
-    }
+        ChunkFormat::Binary => return Ok(()),
+    };
 
     if !texts.is_empty() {
         let f = File::create(json_path)?;
         serde_json::to_writer_pretty(f, &texts)?;
+
+        // Write sidecar metadata file
+        let mf = File::create(meta_path)?;
+        serde_json::to_writer_pretty(mf, &chunk_meta)?;
     }
 
     Ok(())
@@ -329,13 +383,19 @@ fn export_text(data: &[u8], json_path: &Path, format: ChunkFormat) -> io::Result
 fn hex_to_bytes(hex: &str) -> Vec<u8> {
     (0..hex.len())
         .step_by(2)
-        .filter_map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+        .filter_map(|i| {
+            if i + 2 <= hex.len() {
+                u8::from_str_radix(&hex[i..i + 2], 16).ok()
+            } else {
+                None
+            }
+        })
         .collect()
 }
 
 fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
     let json_data = fs::read_to_string(json_path)?;
-    let texts: BTreeMap<String, String> = serde_json::from_str(&json_data)?;
+    let mut texts: BTreeMap<String, String> = serde_json::from_str(&json_data)?;
     if texts.is_empty() {
         return Ok(());
     }
@@ -345,7 +405,37 @@ fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
     let mut is_fixed_566 = false;
     let mut num_strings = 0;
 
-    if let Some(first_key) = texts.keys().next() {
+    // 1. Check sidecar metadata file first (.meta.json)
+    let meta_path = json_path.with_extension("meta.json");
+    if meta_path.exists() {
+        if let Ok(meta_data) = fs::read_to_string(&meta_path)
+            && let Ok(meta) = serde_json::from_str::<ChunkMeta>(&meta_data)
+        {
+            match meta.format.as_str() {
+                "fixed_566" => is_fixed_566 = true,
+                "developer_table" => is_developer_table = true,
+                "table_based" => {
+                    is_table_based = true;
+                    num_strings = meta.num_strings.unwrap_or(0);
+                }
+                _ => {}
+            }
+        }
+    } else if let Some(fmt_tag) = texts.remove("_format") {
+        // 2. Fallback: check in-JSON format tag for legacy exports
+        if fmt_tag == "fixed_566" {
+            is_fixed_566 = true;
+        } else if fmt_tag == "developer_table" {
+            is_developer_table = true;
+        } else if fmt_tag.starts_with("table_based_") {
+            is_table_based = true;
+            let parts: Vec<&str> = fmt_tag.split('_').collect();
+            if let Some(n_str) = parts.get(2) {
+                num_strings = n_str.parse::<usize>().unwrap_or(0);
+            }
+        }
+    } else if let Some(first_key) = texts.keys().next() {
+        // 3. Fallback: heuristic detection
         if first_key.starts_with("f566_") {
             is_fixed_566 = true;
         } else {
@@ -354,27 +444,34 @@ fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
                 && parts[0].parse::<u32>().is_ok()
                 && parts[1].parse::<u32>().is_ok()
             {
-                let str_idx_opt = if parts[3].starts_with("str") {
+                if parts[3].starts_with("str") {
                     is_table_based = true;
-                    let mut max_idx = 0;
-                    for key in texts.keys() {
-                        let k_parts: Vec<&str> = key.splitn(4, '_').collect();
-                        if k_parts.len() == 4
-                            && k_parts[3].starts_with("str")
-                            && let Ok(str_idx) = k_parts[3][3..].parse::<usize>()
-                        {
-                            max_idx = max_idx.max(str_idx + 1);
-                        }
-                    }
-                    Some(max_idx)
                 } else {
                     is_developer_table = true;
-                    None
-                };
-                if let Some(resolved_len) = str_idx_opt {
-                    num_strings = resolved_len;
                 }
             }
+        }
+    }
+
+    if is_table_based && num_strings == 0 {
+        let mut max_idx = 0;
+        for key in texts.keys() {
+            let k_parts: Vec<&str> = key.splitn(4, '_').collect();
+            if k_parts.len() == 4
+                && k_parts[3].starts_with("str")
+                && let Ok(str_idx) = k_parts[3][3..].parse::<usize>()
+            {
+                max_idx = max_idx.max(str_idx + 1);
+            }
+        }
+        num_strings = max_idx;
+    }
+
+    if chunk_path.exists() {
+        let mut bak_path = chunk_path.to_path_buf();
+        bak_path.set_extension("dat.bak");
+        if !bak_path.exists() {
+            let _ = fs::copy(chunk_path, bak_path);
         }
     }
 
@@ -385,15 +482,13 @@ fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
                 continue;
             }
             let parts: Vec<&str> = key.split('_').collect();
-
-            // Safe parsing of key parts to prevent panics when importing hand-edited files
             let offset = parts
                 .get(1)
                 .and_then(|s| s.parse::<usize>().ok())
                 .ok_or_else(|| {
                     io::Error::new(
                         io::ErrorKind::InvalidData,
-                        format!("Invalid offset in metadata key: {}", key),
+                        format!("Invalid offset in key: {}", key),
                     )
                 })?;
 
@@ -418,9 +513,6 @@ fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
         let mut entries: BTreeMap<u32, (u32, u8, String, String)> = BTreeMap::new();
         for (key, val) in &texts {
             let parts: Vec<&str> = key.splitn(4, '_').collect();
-
-            // Safe parsing with proper propagation of formatting errors.
-            // Using .first() instead of .get(0) based on clippy recommendation
             let idx = parts
                 .first()
                 .and_then(|s| s.parse::<u32>().ok())
@@ -452,7 +544,6 @@ fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
                 })?;
 
             let dev_key = parts.get(3).unwrap_or(&"").to_string();
-
             entries.insert(idx, (id_val, flag, val.clone(), dev_key));
         }
 
@@ -474,9 +565,6 @@ fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
         let mut entries: BTreeMap<u32, TableBasedEntry> = BTreeMap::new();
         for (key, val) in &texts {
             let parts: Vec<&str> = key.splitn(4, '_').collect();
-
-            // Safe parsing of table entry indices.
-            // Using .first() instead of .get(0) based on clippy recommendation
             let idx = parts
                 .first()
                 .and_then(|s| s.parse::<u32>().ok())
@@ -505,10 +593,11 @@ fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
             let str_idx_str = parts.get(3).ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::InvalidData,
-                    format!("Missing string target in key: {}", key),
+                    format!("Missing string index target in key: {}", key),
                 )
             })?;
-            if str_idx_str.len() < 4 {
+
+            if str_idx_str.len() < 4 || !str_idx_str.starts_with("str") {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("Malformed string marker in key: {}", key),
@@ -579,7 +668,7 @@ pub fn unpack_all(input: &Path, out_dir: &Path, logger: &UiLogger) -> io::Result
     if data.len() < 20 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "Invalid CFF Signature!",
+            "Invalid CFF Header: file is too small!",
         ));
     }
 
@@ -623,7 +712,7 @@ pub fn unpack_all(input: &Path, out_dir: &Path, logger: &UiLogger) -> io::Result
     } else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "Invalid CFF Signature!",
+            "Invalid CFF signature!",
         ));
     }
 
@@ -644,23 +733,28 @@ pub fn unpack_all(input: &Path, out_dir: &Path, logger: &UiLogger) -> io::Result
             logger.log(&format!("Unpacked {} chunks...", chunk_idx));
         }
 
-        let mut uncomp_data = Vec::new();
-        let chunk_manifest: ChunkManifest;
-
-        if fmt_type == "sf1" {
+        let (chunk_manifest, uncomp_data) = if fmt_type == "sf1" {
             if cursor.position() as usize + 12 > data.len() {
                 break;
             }
-            let id = cursor.read_i16::<LittleEndian>()? as u32;
+            let id = cursor.read_u16::<LittleEndian>()? as u32;
             let occurrence = cursor.read_i16::<LittleEndian>()?;
             let comp_flag = cursor.read_i16::<LittleEndian>()?;
             let comp_size = cursor.read_i32::<LittleEndian>()?;
             let c_type = cursor.read_i16::<LittleEndian>()?;
 
-            if comp_flag == 0 {
+            if comp_size <= 0 || cursor.position() as usize + (comp_size as usize) > data.len() {
+                logger.log(&format!(
+                    "[!] Warning: Corrupted SF1 chunk {} with invalid size {}",
+                    chunk_idx, comp_size
+                ));
+                break;
+            }
+
+            let uncomp_bytes = if comp_flag == 0 {
                 let mut buf = vec![0u8; comp_size as usize];
                 cursor.read_exact(&mut buf)?;
-                uncomp_data = buf;
+                buf
             } else {
                 if cursor.position() as usize + 4 > data.len() {
                     break;
@@ -669,49 +763,67 @@ pub fn unpack_all(input: &Path, out_dir: &Path, logger: &UiLogger) -> io::Result
                 let mut comp_data = vec![0u8; comp_size as usize];
                 cursor.read_exact(&mut comp_data)?;
 
+                let mut uncomp_data = Vec::new();
+
                 let mut decoder = ZlibDecoder::new(comp_data.as_slice());
                 if decoder.read_to_end(&mut uncomp_data).is_err() {
                     uncomp_data = comp_data;
                 }
-            }
-
-            chunk_manifest = ChunkManifest {
-                file: format!("chunk_{}.dat", chunk_idx),
-                id,
-                flag1: None,
-                flag2: None,
-                occurrence: Some(occurrence),
-                comp_flag: Some(comp_flag),
-                c_type: Some(c_type),
+                uncomp_data
             };
+
+            (
+                ChunkManifest {
+                    file: format!("chunk_{}.dat", chunk_idx),
+                    id,
+                    flag1: None,
+                    flag2: None,
+                    occurrence: Some(occurrence),
+                    comp_flag: Some(comp_flag),
+                    c_type: Some(c_type),
+                },
+                uncomp_bytes,
+            )
         } else {
             if cursor.position() as usize + 16 > data.len() {
                 break;
             }
             let id = cursor.read_u32::<LittleEndian>()?;
             let flag1 = cursor.read_u16::<LittleEndian>()?;
-            let comp_size = cursor.read_u32::<LittleEndian>()?;
+            let comp_size = cursor.read_u32::<LittleEndian>()? as usize;
             let flag2 = cursor.read_u16::<LittleEndian>()?;
             let _uncomp_size = cursor.read_u32::<LittleEndian>()?;
 
-            let mut comp_data = vec![0u8; comp_size as usize];
+            if cursor.position() as usize + comp_size > data.len() {
+                logger.log(&format!(
+                    "[!] Warning: Corrupted SF2 chunk {} with overflow size {}",
+                    chunk_idx, comp_size
+                ));
+                break;
+            }
+
+            let mut comp_data = vec![0u8; comp_size];
             cursor.read_exact(&mut comp_data)?;
 
+            let mut uncomp_data = Vec::new();
             let mut decoder = ZlibDecoder::new(comp_data.as_slice());
             if decoder.read_to_end(&mut uncomp_data).is_err() {
                 uncomp_data = comp_data;
             }
 
-            chunk_manifest = ChunkManifest {
-                file: format!("chunk_{}.dat", chunk_idx),
-                id,
-                flag1: Some(flag1),
-                flag2: Some(flag2),
-                occurrence: None,
-                comp_flag: None,
-                c_type: None,
-            };
-        }
+            (
+                ChunkManifest {
+                    file: format!("chunk_{}.dat", chunk_idx),
+                    id,
+                    flag1: Some(flag1),
+                    flag2: Some(flag2),
+                    occurrence: None,
+                    comp_flag: None,
+                    c_type: None,
+                },
+                uncomp_data,
+            )
+        };
 
         let chunk_name = chunk_manifest.file.clone();
         let chunk_path = out_dir.join(&chunk_name);
@@ -750,7 +862,7 @@ pub fn pack_all(
     if !manifest_path.exists() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            "manifest.json not found!",
+            "manifest.json not found in the source directory!",
         ));
     }
 
@@ -788,14 +900,12 @@ pub fn pack_all(
         let mut header = Vec::new();
         File::open(header_path)?.read_to_end(&mut header)?;
         out.write_all(&header)?;
+    } else if fmt_type == "sf1" {
+        out.write_i32::<LittleEndian>(-579674862)?;
+        out.write_all(&[0u8; 16])?;
     } else {
-        if fmt_type == "sf1" {
-            out.write_i32::<LittleEndian>(-579674862)?;
-            out.write_all(&[0u8; 16])?;
-        } else {
-            out.write_all(b"\x12\xdd\x72\xdd")?;
-            out.write_all(&[0u8; 16])?;
-        }
+        out.write_all(b"\x12\xdd\x72\xdd")?;
+        out.write_all(&[0u8; 16])?;
     }
 
     for (idx, chunk) in manifest.chunks.into_iter().enumerate() {
@@ -849,6 +959,6 @@ pub fn pack_all(
         }
     }
 
-    logger.log("CFF successfully packed and compiled!");
+    logger.log("CFF container successfully packed and finalized!");
     Ok(())
 }

@@ -1,5 +1,5 @@
-import struct
 import os
+import struct
 
 
 def parse_meta_v2(filepath):

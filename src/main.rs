@@ -18,36 +18,185 @@ pub struct UiLogger {
 
 impl UiLogger {
     pub fn log(&self, msg: &str) {
-        // Send the log message through the channel (non-blocking)
         let _ = self.sender.send(format!("{}\n", msg));
     }
 }
 
-fn main() -> Result<(), slint::PlatformError> {
+fn make_cli_logger() -> (UiLogger, thread::JoinHandle<()>) {
+    let (tx, rx) = mpsc::channel::<String>();
+    let handle = thread::spawn(move || {
+        while let Ok(msg) = rx.recv() {
+            print!("{}", msg);
+        }
+    });
+    (UiLogger { sender: tx }, handle)
+}
+
+fn print_help() {
+    println!(
+        "\
+SFTool - SpellForce Modding & Localization Suite (CLI Mode)
+Usage: SFTool <command> [arguments...]
+
+Commands:
+  unpack_cff <input_cff> <out_dir>
+      Unpack CFF container into binary chunks and export texts to JSON.
+
+  pack_cff <in_dir> <out_cff> [compression_level: 0-9, default: 6]
+      Import texts from JSON into chunks and compile into a CFF container.
+
+  unpack_pak <pak_file> <out_dir>
+      Extract all files from a SpellForce 1 or SpellForce 2 PAK archive.
+
+  pack_pak <src_dir> <out_pak> [fmt: sf1|sf2, default: sf2] [comp: 0-9, default: 6] [sf1_mode: Meta|Scratch, default: Meta]
+      Pack a directory into a SpellForce PAK archive.
+
+  batch_unpack_pak <root_folder>
+      Recursively find and extract all .pak files in root_folder.
+
+  batch_pack_pak <root_folder> [fmt: sf1|sf2, default: sf2] [comp: 0-9, default: 6] [sf1_mode: Meta|Scratch, default: Meta]
+      Batch pack all '*_extracted' directories back into .pak files.
+
+  help, --help, -h
+      Show this help message.
+
+Note: If no arguments are provided, SFTool launches in GUI mode."
+    );
+}
+
+fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let cmd = args[1].to_lowercase();
+    match cmd.as_str() {
+        "--help" | "-h" | "help" => {
+            print_help();
+        }
+        "unpack_cff" => {
+            if args.len() < 4 {
+                eprintln!("Usage: SFTool unpack_cff <input_cff> <out_dir>");
+                return Ok(());
+            }
+            let in_path = PathBuf::from(&args[2]);
+            let out_dir = PathBuf::from(&args[3]);
+            let (logger, handle) = make_cli_logger();
+            logger.log(&format!(
+                "[*] Unpacking CFF: {:?} -> {:?}",
+                in_path, out_dir
+            ));
+            cff::unpack_all(&in_path, &out_dir, &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+        "pack_cff" => {
+            if args.len() < 4 {
+                eprintln!("Usage: SFTool pack_cff <in_dir> <out_cff> [compression_level]");
+                return Ok(());
+            }
+            let in_dir = PathBuf::from(&args[2]);
+            let out_file = PathBuf::from(&args[3]);
+            let comp = args.get(4).and_then(|s| s.parse::<u32>().ok()).unwrap_or(6);
+            let (logger, handle) = make_cli_logger();
+            logger.log(&format!(
+                "[*] Packing CFF (compression: {}): {:?} -> {:?}",
+                comp, in_dir, out_file
+            ));
+            cff::pack_all(&in_dir, &out_file, comp, &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+        "unpack_pak" => {
+            if args.len() < 4 {
+                eprintln!("Usage: SFTool unpack_pak <pak_file> <out_dir>");
+                return Ok(());
+            }
+            let pak_path = PathBuf::from(&args[2]);
+            let out_dir = PathBuf::from(&args[3]);
+            let (logger, handle) = make_cli_logger();
+            logger.log(&format!(
+                "[*] Unpacking PAK: {:?} -> {:?}",
+                pak_path, out_dir
+            ));
+            pak::unpack_pak(&pak_path, &out_dir, &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+        "pack_pak" => {
+            if args.len() < 4 {
+                eprintln!(
+                    "Usage: SFTool pack_pak <src_dir> <out_pak> [fmt: sf1/sf2] [comp] [sf1_mode: Meta/Scratch]"
+                );
+                return Ok(());
+            }
+            let src_dir = PathBuf::from(&args[2]);
+            let out_file = PathBuf::from(&args[3]);
+            let fmt = args.get(4).map(|s| s.as_str()).unwrap_or("sf2");
+            let comp = args.get(5).and_then(|s| s.parse::<u32>().ok()).unwrap_or(6);
+            let mode = args.get(6).map(|s| s.as_str()).unwrap_or("Meta");
+            let (logger, handle) = make_cli_logger();
+            logger.log(&format!(
+                "[*] Packing PAK (fmt: {}, comp: {}, mode: {}): {:?} -> {:?}",
+                fmt, comp, mode, src_dir, out_file
+            ));
+            pak::pack_pak(&src_dir, &out_file, fmt, comp, mode, &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+        "batch_unpack_pak" => {
+            if args.len() < 3 {
+                eprintln!("Usage: SFTool batch_unpack_pak <root_folder>");
+                return Ok(());
+            }
+            let root = PathBuf::from(&args[2]);
+            let (logger, handle) = make_cli_logger();
+            pak::batch_unpack_paks(&root, &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+        "batch_pack_pak" => {
+            if args.len() < 3 {
+                eprintln!(
+                    "Usage: SFTool batch_pack_pak <root_folder> [fmt: sf1/sf2] [comp] [sf1_mode: Meta/Scratch]"
+                );
+                return Ok(());
+            }
+            let root = PathBuf::from(&args[2]);
+            let fmt = args.get(3).map(|s| s.as_str()).unwrap_or("sf2");
+            let comp = args.get(4).and_then(|s| s.parse::<u32>().ok()).unwrap_or(6);
+            let mode = args.get(5).map(|s| s.as_str()).unwrap_or("Meta");
+            let (logger, handle) = make_cli_logger();
+            pak::batch_pack_folders(&root, fmt, comp, mode, &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+        unknown => {
+            eprintln!("[!] Unknown CLI command: '{}'", unknown);
+            print_help();
+        }
+    }
+    Ok(())
+}
+
+fn run_gui() -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
     let ui_handle = ui.as_weak();
 
     ui.set_log_text("System Ready.\n".into());
     ui.set_status_msg("Ready.".into());
 
-    // Channel for fast and non-blocking log transmission to the UI
     let (log_tx, log_rx) = mpsc::channel::<String>();
     let logger_base = UiLogger { sender: log_tx };
 
     let ui_weak_log = ui_handle.clone();
 
-    // Background thread for batching logs to prevent UI freezing (Quadratic complexity fix)
+    // Background thread for batching logs to keep UI animations smooth
     thread::spawn(move || {
         let mut logs = VecDeque::with_capacity(300);
         while let Ok(msg) = log_rx.recv() {
             logs.push_back(msg);
 
-            // Drain the channel for any pending messages
             while let Ok(m) = log_rx.try_recv() {
                 logs.push_back(m);
             }
 
-            // Keep only the last 250 lines to prevent memory bloat and UI lag
             while logs.len() > 250 {
                 logs.pop_front();
             }
@@ -57,12 +206,10 @@ fn main() -> Result<(), slint::PlatformError> {
                 ui.set_log_text(combined.into());
             });
 
-            // Refresh UI every 60ms to guarantee smooth animations
             thread::sleep(std::time::Duration::from_millis(60));
         }
     });
 
-    // Wrapped in Arc<Mutex> for thread-safe access between background parsing and the UI
     let tree_items_state = Arc::new(Mutex::new(Vec::<pak::TreeItem>::new()));
 
     let ui_weak_browse = ui_handle.clone();
@@ -78,7 +225,6 @@ fn main() -> Result<(), slint::PlatformError> {
             let tree_state = tree_items_browse.clone();
             let ext_clone = ext_str.to_string();
 
-            // Offload parsing to a background thread to keep UI responsive
             thread::spawn(move || {
                 if ext_clone == "pak"
                     && let Ok(file_paths) = pak::list_pak_files(&path)
@@ -113,7 +259,6 @@ fn main() -> Result<(), slint::PlatformError> {
             let ui_weak = ui_weak_folder.clone();
             let tree_state = tree_items_folder.clone();
 
-            // Offload heavy directory walking to a background thread
             thread::spawn(move || {
                 if let Ok(file_paths) = pak::list_directory_files(&path) {
                     let items = pak::generate_tree_items(&file_paths);
@@ -282,7 +427,6 @@ fn main() -> Result<(), slint::PlatformError> {
         let path = PathBuf::from(dat.as_str());
         let filter_str = filter.as_str();
 
-        // This is fast enough to block UI slightly, but ideally could be spawned too if needed.
         let items = inspector::scan_strings(&path, filter_str);
 
         let mut slint_items: Vec<StandardListViewItem> = Vec::new();
@@ -292,7 +436,7 @@ fn main() -> Result<(), slint::PlatformError> {
         }
 
         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-            let slint_model = slint::ModelRc::from(Rc::new(slint::VecModel::from(slint_items)));
+            let slint_model = ModelRc::from(Rc::new(VecModel::from(slint_items)));
             ui.set_inspector_results(slint_model);
             ui.set_status_msg("Binary scan complete.".into());
         });
@@ -320,4 +464,17 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     ui.run()
+}
+
+fn main() -> Result<(), slint::PlatformError> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        if let Err(e) = handle_cli(&args) {
+            eprintln!("[!] CLI Execution Error: {}", e);
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
+    run_gui()
 }

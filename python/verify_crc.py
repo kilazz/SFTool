@@ -1,5 +1,5 @@
-import struct
 import os
+import struct
 
 # Generate standard CRC32 table (IEEE 802.3 polynomial: 0xEDB88320)
 CRC32_TABLE = []

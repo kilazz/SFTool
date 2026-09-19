@@ -38,8 +38,21 @@ pub fn scan_strings(path: &Path, filter: &str) -> Vec<(usize, String)> {
     results
 }
 
+pub fn parse_offset(s: &str) -> Result<usize, std::num::ParseIntError> {
+    let s = s.trim();
+    if s.to_lowercase().starts_with("0x") && s.len() > 2 {
+        usize::from_str_radix(&s[2..], 16)
+    } else {
+        s.parse::<usize>()
+    }
+}
+
 pub fn read_val(path: &str, offset_str: &str, dtype: &str) -> String {
-    let offset = parse_offset(offset_str);
+    let offset = match parse_offset(offset_str) {
+        Ok(off) => off,
+        Err(_) => return "Invalid Offset".into(),
+    };
+
     if let Ok(mut f) = File::open(path) {
         if f.seek(SeekFrom::Start(offset as u64)).is_err() {
             return "Bounds Error".into();
@@ -83,25 +96,51 @@ pub fn write_val(
     dtype: &str,
     new_val: &str,
 ) -> Result<(), std::io::Error> {
-    let offset = parse_offset(offset_str);
+    let offset = parse_offset(offset_str).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("Invalid offset input '{}': {}", offset_str, e),
+        )
+    })?;
+
     let mut f = OpenOptions::new().read(true).write(true).open(path)?;
     f.seek(SeekFrom::Start(offset as u64))?;
 
     match dtype {
         "Byte" => {
-            let v = new_val.parse::<u8>().unwrap_or(0);
+            let v = new_val.parse::<u8>().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Invalid Byte value: {}", e),
+                )
+            })?;
             f.write_u8(v)?;
         }
         "Int16" => {
-            let v = new_val.parse::<i16>().unwrap_or(0);
+            let v = new_val.parse::<i16>().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Invalid Int16 value: {}", e),
+                )
+            })?;
             f.write_i16::<LittleEndian>(v)?;
         }
         "Int32" => {
-            let v = new_val.parse::<i32>().unwrap_or(0);
+            let v = new_val.parse::<i32>().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Invalid Int32 value: {}", e),
+                )
+            })?;
             f.write_i32::<LittleEndian>(v)?;
         }
         "Float32" => {
-            let v = new_val.parse::<f32>().unwrap_or(0.0);
+            let v = new_val.parse::<f32>().map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Invalid Float32 value: {}", e),
+                )
+            })?;
             f.write_f32::<LittleEndian>(v)?;
         }
         "String" => {
@@ -109,17 +148,12 @@ pub fn write_val(
             f.write_all(&encoded)?;
             f.write_u8(0)?;
         }
-        _ => {}
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Unknown data type selected.",
+            ));
+        }
     }
     Ok(())
-}
-
-fn parse_offset(s: &str) -> usize {
-    let s = s.trim();
-    // Safely check length to avoid out-of-bounds panics if the input is strictly '0x' or shorter
-    if s.to_lowercase().starts_with("0x") && s.len() > 2 {
-        usize::from_str_radix(&s[2..], 16).unwrap_or(0)
-    } else {
-        s.parse().unwrap_or(0)
-    }
 }

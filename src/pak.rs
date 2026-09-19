@@ -59,7 +59,6 @@ pub struct TreeItem {
 
 pub fn generate_tree_items(file_paths: &[String]) -> Vec<TreeItem> {
     let mut dirs_set = HashSet::new();
-    let mut items = Vec::new();
 
     for path in file_paths {
         let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
@@ -84,6 +83,7 @@ pub fn generate_tree_items(file_paths: &[String]) -> Vec<TreeItem> {
     let mut sorted_paths: Vec<(String, bool)> = all_paths.into_iter().collect();
     sorted_paths.sort_by(|a, b| a.0.cmp(&b.0));
 
+    let mut items = Vec::new();
     for (path, is_dir) in sorted_paths {
         let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
         let name = parts.last().cloned().unwrap_or_default().to_string();
@@ -166,9 +166,8 @@ pub fn list_directory_files(dir_path: &Path) -> io::Result<Vec<String>> {
     let mut file_list = Vec::new();
     for entry in WalkDir::new(dir_path).into_iter().filter_map(|e| e.ok()) {
         if entry.path().is_file() {
-            // Avoid unwrap() on path formatting fallbacks
             let rel = entry.path().strip_prefix(dir_path).unwrap_or(entry.path());
-            file_list.push(rel.to_string_lossy().replace("\\", "/"));
+            file_list.push(rel.to_string_lossy().replace('\\', "/"));
         }
     }
     Ok(file_list)
@@ -227,7 +226,7 @@ pub fn list_pak_files(pak_path: &Path) -> io::Result<Vec<String>> {
                     } else {
                         format!("{}\\{}", dir_name, file_name)
                     };
-                    file_list.push(full_path.replace("\\", "/"));
+                    file_list.push(full_path.replace('\\', "/"));
                 }
                 return Ok(file_list);
             }
@@ -260,15 +259,16 @@ pub fn list_pak_files(pak_path: &Path) -> io::Result<Vec<String>> {
             let name_len = cursor.read_i32::<LittleEndian>()?;
             let mut name_bytes = vec![0u8; name_len as usize];
             cursor.read_exact(&mut name_bytes)?;
-            file_list.push(decode_windows(&name_bytes).replace("\\", "/"));
+            file_list.push(decode_windows(&name_bytes).replace('\\', "/"));
             cursor.read_u32::<LittleEndian>()?;
             cursor.read_u32::<LittleEndian>()?;
         }
         return Ok(file_list);
     }
+
     Err(io::Error::new(
         io::ErrorKind::InvalidData,
-        "Unsupported archive format",
+        "Unsupported or corrupt PAK archive format.",
     ))
 }
 
@@ -328,11 +328,11 @@ fn unpack_sf2(f: &mut File, out_dir: &Path, logger: &UiLogger) -> io::Result<()>
         let name_len = cursor.read_i32::<LittleEndian>()?;
         let mut name_bytes = vec![0u8; name_len as usize];
         cursor.read_exact(&mut name_bytes)?;
-        let filename = decode_windows(&name_bytes).replace("\\", "/");
+        let filename = decode_windows(&name_bytes).replace('\\', "/");
 
         let f_offset = cursor.read_u32::<LittleEndian>()?;
         let next_offset = cursor.read_u32::<LittleEndian>()?;
-        let size = next_offset - f_offset;
+        let size = next_offset.saturating_sub(f_offset);
 
         if i % 100 == 0 || i == file_count - 1 {
             logger.log(&format!(
@@ -352,8 +352,6 @@ fn unpack_sf2(f: &mut File, out_dir: &Path, logger: &UiLogger) -> io::Result<()>
         f.seek(SeekFrom::Start(f_offset as u64))?;
         let mut target_file = File::create(target)?;
 
-        // Zero-copy stream writing (prevents memory bloat on large files)
-        // Explicitly use std::io::Read to resolve ambiguity between Read and Write traits for File
         let mut chunk = std::io::Read::by_ref(f).take(size as u64);
         io::copy(&mut chunk, &mut target_file)?;
 
@@ -398,7 +396,7 @@ fn unpack_sf1(f: &mut File, out_dir: &Path, logger: &UiLogger) -> io::Result<()>
         } else {
             format!("{}\\{}", dir_name, file_name)
         };
-        let target = out_dir.join(full_path.replace("\\", "/"));
+        let target = out_dir.join(full_path.replace('\\', "/"));
 
         if i % 100 == 0 || i == num_files as usize - 1 {
             logger.log(&format!(
@@ -416,8 +414,6 @@ fn unpack_sf1(f: &mut File, out_dir: &Path, logger: &UiLogger) -> io::Result<()>
         f.seek(SeekFrom::Start((data_start + offset) as u64))?;
         let mut target_file = File::create(target)?;
 
-        // Zero-copy stream writing (prevents memory bloat on large files)
-        // Explicitly use std::io::Read to resolve ambiguity between Read and Write traits for File
         let mut chunk = std::io::Read::by_ref(f).take(size as u64);
         io::copy(&mut chunk, &mut target_file)?;
     }
@@ -463,7 +459,6 @@ fn pack_sf2(src_dir: &Path, out_file: &Path, comp_level: u32, logger: &UiLogger)
     let num_files = files.len();
 
     for (idx, file_path) in files.iter().enumerate() {
-        // Safe prefix stripping with fallback
         let rel_path = file_path
             .strip_prefix(src_dir)
             .unwrap_or(file_path)
@@ -483,7 +478,6 @@ fn pack_sf2(src_dir: &Path, out_file: &Path, comp_level: u32, logger: &UiLogger)
         let offset = f.stream_position()?;
         let mut in_f = File::open(file_path)?;
 
-        // Stream directly to the final archive
         io::copy(&mut in_f, &mut f)?;
         let size = f.stream_position()? - offset;
         entries.push((rel_path, offset as u32, size as u32));
@@ -522,7 +516,7 @@ fn pack_sf1_meta(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Resu
     if !meta_path.exists() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            "ERROR: '.sf1_meta.bin' not found! Please use a folder extracted with this tool.",
+            "ERROR: '.sf1_meta.bin' not found! Please use a folder extracted from an original SF1 PAK.",
         ));
     }
 
@@ -532,8 +526,6 @@ fn pack_sf1_meta(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Resu
     let name_list_start = 92 + (num_files as usize) * 16;
 
     let mut out = File::create(out_file)?;
-
-    // Reserve space for the header and tables
     out.seek(SeekFrom::Start(data_start as u64))?;
 
     let mut current_offset = 0u32;
@@ -570,7 +562,6 @@ fn pack_sf1_meta(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Resu
             ));
         }
 
-        // Stream file contents directly to avoid out-of-memory errors on huge mods
         let (file_size, padding) = if disk_path.exists() {
             let mut f = File::open(&disk_path)?;
             let size = io::copy(&mut f, &mut out)?;
@@ -610,7 +601,6 @@ fn pack_sf1_meta(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Resu
     let mut mw = Cursor::new(&mut meta[72..76]);
     mw.write_u32::<LittleEndian>(final_crc)?;
 
-    // Jump back to the beginning to rewrite the updated meta header
     out.seek(SeekFrom::Start(0))?;
     out.write_all(&meta)?;
 
@@ -666,13 +656,12 @@ fn build_bounded_bst(
 }
 
 fn pack_sf1_scratch(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Result<()> {
-    logger.log("[!] WARNING: 'From Scratch' mode is highly experimental for SF1.");
+    logger.log("[!] WARNING: 'From Scratch' mode is experimental for SF1.");
     let mut files = Vec::new();
     for entry in WalkDir::new(src_dir).into_iter().filter_map(|e| e.ok()) {
         if entry.path().is_file() {
             let name = entry.file_name().to_string_lossy();
             if name != ".sf1_meta.bin" && !name.starts_with('.') {
-                // Safe prefix stripping with robust fallback path
                 let rel = entry
                     .path()
                     .strip_prefix(src_dir)
@@ -810,7 +799,6 @@ fn pack_sf1_scratch(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::R
 
         let disk_path = src_dir.join(&node.path);
 
-        // Zero-copy stream writing
         let (file_size, padding) = if disk_path.exists() {
             let mut f = File::open(&disk_path)?;
             let size = io::copy(&mut f, &mut out)?;
@@ -823,7 +811,6 @@ fn pack_sf1_scratch(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::R
             (0, 0)
         };
 
-        // Safer retrieval of node path offset to prevent logical crashes
         let name_off_raw = *string_offsets.get(&node.path).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -911,7 +898,7 @@ pub fn batch_unpack_paks(root_dir: &Path, logger: &UiLogger) -> io::Result<()> {
             && entry.path().extension().and_then(|s| s.to_str()) == Some("pak")
         {
             let pak_path = entry.path();
-            let parent_dir = pak_path.parent().unwrap_or(Path::new("."));
+            let parent_dir = pak_path.parent().unwrap_or_else(|| Path::new("."));
             let file_stem = pak_path.file_stem().unwrap_or_default().to_string_lossy();
             let out_dir = parent_dir.join(format!("{}_extracted", file_stem));
 

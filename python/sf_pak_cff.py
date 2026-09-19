@@ -5,6 +5,7 @@ Includes support for SpellForce 1: Platinum Edition hybrid CFF headers and 62MB 
 Features both Balanced BST Generation from Scratch and Meta-Template Injection for SF1 .PAK archives.
 """
 
+import contextlib
 import json
 import os
 import queue
@@ -52,7 +53,7 @@ def unpack_cff(input_file, out_dir):
     try:
         with open(input_file, "rb") as f:
             data = f.read()
-    except Exception as e:
+    except OSError as e:
         print(f"[!] Error reading file: {e}")
         return False
 
@@ -108,13 +109,13 @@ def unpack_cff(input_file, out_dir):
             else:
                 if offset + 4 > len(data):
                     break
-                uncomp_size = struct.unpack_from("<i", data, offset)[0]
+                _uncomp_size = struct.unpack_from("<i", data, offset)[0]
                 offset += 4
                 comp_data = data[offset : offset + comp_size]
                 offset += comp_size
                 try:
                     uncomp_data = zlib.decompress(comp_data)
-                except Exception as e:
+                except zlib.error as e:
                     print(f"[!] Error decompressing SF1 chunk {chunk_idx}: {e}")
                     uncomp_data = comp_data
 
@@ -134,7 +135,7 @@ def unpack_cff(input_file, out_dir):
         else:  # sf2
             if offset + 16 > len(data):
                 break
-            c_id, flag1, comp_size, flag2, uncomp_size = struct.unpack_from(
+            c_id, flag1, comp_size, flag2, _uncomp_size = struct.unpack_from(
                 "<IHIHI", data, offset
             )
             offset += 16
@@ -143,7 +144,7 @@ def unpack_cff(input_file, out_dir):
 
             try:
                 uncomp_data = zlib.decompress(comp_data)
-            except Exception as e:
+            except zlib.error as e:
                 print(f"[!] Error decompressing SF2 chunk {chunk_idx}: {e}")
                 uncomp_data = comp_data
 
@@ -277,7 +278,7 @@ def detect_format(data):
     if count == 0 or count > 200000:
         return "binary", 0, 0
 
-    try:
+    with contextlib.suppress(struct.error, IndexError):
         offset = 4
         is_c = True
         for _ in range(count):
@@ -307,10 +308,8 @@ def detect_format(data):
             offset += 4 + key_len
         if is_c and offset == len(data):
             return "developer_table", 0, 0
-    except Exception:
-        pass
 
-    try:
+    with contextlib.suppress(struct.error, IndexError):
         offset = 4
         is_a = True
         for _ in range(count):
@@ -337,12 +336,10 @@ def detect_format(data):
             offset += 4 + text_len * 2
         if is_a and offset == len(data):
             return "string_table", 0, 0
-    except Exception:
-        pass
 
     for E in range(17):
         for N in range(1, 6):
-            try:
+            with contextlib.suppress(struct.error, IndexError):
                 offset = 4
                 is_b = True
                 for _ in range(count):
@@ -361,8 +358,6 @@ def detect_format(data):
                         offset += 4 + str_len * 2
                 if is_b and offset == len(data):
                     return "table_based", N, E
-            except Exception:
-                pass
 
     return "binary", 0, 0
 
@@ -396,7 +391,7 @@ def export_text(chunk_path, json_path):
 
             try:
                 text = text_bytes.decode("cp1252")
-            except Exception:
+            except UnicodeDecodeError:
                 text = text_bytes.decode("cp1251", errors="ignore")
 
             texts[f"f566_{offset}_{str_id}"] = text
@@ -438,7 +433,7 @@ def export_text(chunk_path, json_path):
                 name_bytes = data[offset : offset + name_len]
                 try:
                     name = name_bytes.decode("cp1252")
-                except Exception:
+                except UnicodeDecodeError:
                     name = name_bytes.decode("cp1251", errors="ignore")
 
                 offset += name_len
@@ -501,12 +496,11 @@ def import_text(json_path, chunk_path):
                 if parts[3].startswith("str"):
                     is_table_based = True
                     max_str_idx = 0
-                    for key in texts.keys():
+                    for key in texts:
                         k_parts = key.split("_", 3)
                         if len(k_parts) == 4 and k_parts[3].startswith("str"):
                             str_idx = int(k_parts[3][3:])
-                            if str_idx > max_str_idx:
-                                max_str_idx = str_idx
+                            max_str_idx = max(max_str_idx, str_idx)
                     num_strings = max_str_idx + 1
                 else:
                     is_developer_table = True
@@ -630,33 +624,32 @@ def unpack_all(cff_path, work_dir):
     skipped_count = 0
 
     for file in os.listdir(work_dir):
-        if file.startswith("chunk_") and file.endswith(".dat"):
-            chunk_path = os.path.join(work_dir, file)
-            try:
-                chunk_idx = int(file.split("_")[1].split(".")[0])
-            except Exception:
-                continue
+        match = re.match(r"^chunk_(\d+)\.dat$", file)
+        if not match:
+            continue
+        chunk_idx = int(match.group(1))
+        chunk_path = os.path.join(work_dir, file)
 
-            with open(chunk_path, "rb") as f:
-                data = f.read()
+        with open(chunk_path, "rb") as f:
+            data = f.read()
 
-            if len(data) < 8:
-                skipped_count += 1
-                continue
+        if len(data) < 8:
+            skipped_count += 1
+            continue
 
-            fmt, num_strings, extra_bytes = detect_format(data)
+        fmt, _, _ = detect_format(data)
 
-            if fmt == "binary":
-                skipped_count += 1
-                continue
+        if fmt == "binary":
+            skipped_count += 1
+            continue
 
-            desc_name = f"chunk_{chunk_idx}_strings.json"
-            json_path = os.path.join(json_dir, desc_name)
+        desc_name = f"chunk_{chunk_idx}_strings.json"
+        json_path = os.path.join(json_dir, desc_name)
 
-            if export_text(chunk_path, json_path):
-                extracted_count += 1
-            else:
-                skipped_count += 1
+        if export_text(chunk_path, json_path):
+            extracted_count += 1
+        else:
+            skipped_count += 1
 
     print(
         f"[+] Unpack completed! Exported: {extracted_count} text chunks, Skipped: {skipped_count} binary/empty chunks."
@@ -816,7 +809,7 @@ def read_pak_entries(pak_path):
                 magic_bytes = fs.read(24)
                 if magic_bytes.startswith(b"MASSIVE PAKFILE"):
                     fs.seek(76)
-                    num_files, _, data_start, archive_size = struct.unpack(
+                    num_files, _, data_start, _archive_size = struct.unpack(
                         "<IIII", fs.read(16)
                     )
                     fs.seek(92)
@@ -884,7 +877,7 @@ def read_pak_entries(pak_path):
         if version != 1:
             raise ValueError(f"Unknown PAK version: {version}")
 
-        dir_offset, uncomp_size, comp_size = struct.unpack("<III", fs.read(12))
+        dir_offset, _uncomp_size, comp_size = struct.unpack("<III", fs.read(12))
 
         fs.seek(dir_offset)
         comp_data = fs.read(comp_size)
@@ -1033,7 +1026,7 @@ def pack_pak_sf1(source_dir, out_pak_path, progress_callback=None):
     """
     meta_path = os.path.join(source_dir, ".sf1_meta.bin")
     if not os.path.exists(meta_path):
-        raise Exception(
+        raise FileNotFoundError(
             "ERROR: '.sf1_meta.bin' not found! You must unpack an existing SF1 archive "
             "with this exact tool first to preserve its internal binary search tree."
         )
@@ -1166,7 +1159,7 @@ def pack_pak_sf1_from_scratch(source_dir, out_pak_path, progress_callback=None):
     string_table = bytearray()
     string_offsets = {}
 
-    unique_dirs = sorted(list(dir_groups.keys()))
+    unique_dirs = sorted(dir_groups.keys())
     for d in unique_dirs:
         if d == "":
             continue
@@ -1195,7 +1188,7 @@ def pack_pak_sf1_from_scratch(source_dir, out_pak_path, progress_callback=None):
         try:
             with open(full_filepath, "rb") as f:
                 file_data = f.read()
-        except Exception as e:
+        except OSError as e:
             if progress_callback:
                 progress_callback(
                     f"[!] Error reading file {node.path}: {e}. Writing empty file."
@@ -1298,7 +1291,7 @@ def batch_unpack_paks(root_dir, progress_callback=None):
             )
         try:
             unpack_pak(pak_path, out_dir, progress_callback)
-        except Exception as e:
+        except (OSError, ValueError, struct.error, zlib.error) as e:
             if progress_callback:
                 progress_callback(
                     f"[!] Error unpacking {os.path.basename(pak_path)}: {e}"
@@ -1359,7 +1352,7 @@ def batch_pack_folders(
                 progress_callback(
                     f"[+] Successfully compiled: {os.path.basename(out_pak_path)}"
                 )
-        except Exception as e:
+        except (OSError, ValueError, struct.error, zlib.error) as e:
             if progress_callback:
                 progress_callback(f"[!] Error packing folder {folder_name}: {e}")
 
@@ -1530,7 +1523,7 @@ def launch_gui():
                 status_msg_var.set(
                     f"Opened {os.path.basename(path)}. Format: {fmt_name}. Found {len(entries)} files."
                 )
-            except Exception as ex:
+            except (OSError, ValueError, struct.error) as ex:
                 status_msg_var.set(f"Error reading index: {ex}")
 
     tk.Button(
@@ -1643,7 +1636,7 @@ def launch_gui():
                 status_msg_var.set(
                     f"Loaded folder: {os.path.basename(path)}. Ready to pack."
                 )
-            except Exception as ex:
+            except OSError as ex:
                 status_msg_var.set(f"Error loading folder: {ex}")
 
     tk.Button(
@@ -1747,7 +1740,7 @@ def launch_gui():
                         pack_pak_sf1_from_scratch(src_dir, out_file, print)
                 else:
                     pack_pak_sf2(src_dir, out_file, level, print)
-            except Exception as e:
+            except (OSError, ValueError, struct.error, zlib.error) as e:
                 print(f"\n[!] Build Error: {e}")
 
         run_thread(thread_pack)
@@ -2001,7 +1994,7 @@ def launch_gui():
                     full_path = os.path.join(current_dir, f)
                     if os.path.isfile(full_path):
                         tree_widget.insert(parent_node, "end", text=f, open=False)
-            except Exception as e:
+            except OSError as e:
                 print(f"[!] Error scanning directory: {e}")
 
         recurse(root_id, dir_path)
@@ -2316,7 +2309,7 @@ def launch_gui():
                         break
                     chars.append(chr(b))
                 current_val_var.set("".join(chars))
-        except Exception as e:
+        except (OSError, struct.error, ValueError) as e:
             current_val_var.set(f"Error: {e}")
 
     def update_target_offset(*args):
@@ -2390,7 +2383,7 @@ def launch_gui():
             messagebox.showinfo(
                 "Success", f"Successfully wrote '{new_val_str}' at offset {addr}!"
             )
-        except Exception as e:
+        except (OSError, struct.error, ValueError) as e:
             messagebox.showerror("Error", f"Failed to write value: {e}")
 
     tk.Button(
