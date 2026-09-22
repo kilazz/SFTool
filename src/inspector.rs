@@ -10,29 +10,33 @@ pub fn scan_strings(path: &Path, filter: &str) -> Vec<(usize, String)> {
         let mut data = Vec::new();
         let _ = f.read_to_end(&mut data);
 
-        let mut current_str = String::new();
+        let mut current_bytes = Vec::new();
         let mut start_offset = 0;
 
         for (i, &b) in data.iter().enumerate() {
-            if (32..=126).contains(&b) {
-                if current_str.is_empty() {
+            // Support ASCII and Extended Windows ANSI (Cyrillic, European umlauts)
+            if (32..=126).contains(&b) || (160..=255).contains(&b) {
+                if current_bytes.is_empty() {
                     start_offset = i;
                 }
-                current_str.push(b as char);
+                current_bytes.push(b);
             } else {
-                if current_str.len() >= 4
-                    && (filter.is_empty()
-                        || current_str.to_lowercase().contains(&filter.to_lowercase()))
-                {
-                    results.push((start_offset, current_str.clone()));
+                if current_bytes.len() >= 4 {
+                    let decoded = decode_windows(&current_bytes);
+                    if filter.is_empty() || decoded.to_lowercase().contains(&filter.to_lowercase())
+                    {
+                        results.push((start_offset, decoded));
+                    }
                 }
-                current_str.clear();
+                current_bytes.clear();
             }
         }
-        if current_str.len() >= 4
-            && (filter.is_empty() || current_str.to_lowercase().contains(&filter.to_lowercase()))
-        {
-            results.push((start_offset, current_str.clone()));
+
+        if current_bytes.len() >= 4 {
+            let decoded = decode_windows(&current_bytes);
+            if filter.is_empty() || decoded.to_lowercase().contains(&filter.to_lowercase()) {
+                results.push((start_offset, decoded));
+            }
         }
     }
     results
@@ -146,7 +150,7 @@ pub fn write_val(
         "String" => {
             let encoded = encode_windows(new_val);
             f.write_all(&encoded)?;
-            f.write_u8(0)?;
+            f.write_u8(0)?; // Null-terminate safely
         }
         _ => {
             return Err(std::io::Error::new(

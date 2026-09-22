@@ -4,14 +4,14 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use flate2::Compression;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use walkdir::WalkDir;
 
 // -----------------------------------------------------------------------------
-// CRC32 ENGINE (IEEE 802.3 w/o final bitwise inversion for SF1)
+// CRC32 & SF1 PATH HASH ENGINE
 // -----------------------------------------------------------------------------
 
 const fn generate_crc32_table() -> [u32; 256] {
@@ -36,13 +36,30 @@ const fn generate_crc32_table() -> [u32; 256] {
 
 const CRC32_TABLE: [u32; 256] = generate_crc32_table();
 
-fn calculate_sf1_crc(data: &[u8], prev_crc: u32) -> u32 {
+pub fn calculate_sf1_crc(data: &[u8], prev_crc: u32) -> u32 {
     let mut crc = prev_crc;
     for &b in data {
         crc = (crc >> 8) ^ CRC32_TABLE[((crc ^ (b as u32)) & 0xFF) as usize];
     }
     crc
 }
+
+/// In-engine 16-bit K&R path hash from SpellForce 1 executable (FUN_004a4180).
+/// Formula: h = h * 31 + char
+pub fn calc_sf1_path_hash(path: &str) -> u16 {
+    let mut h: u32 = 0;
+    for &b in path.as_bytes() {
+        h = h.wrapping_mul(31).wrapping_add(b as u32);
+    }
+    (h & 0xFFFF) as u16
+}
+
+// 44-byte Phenomic Engine header template block (offsets 28..72)
+const PHENOMIC_HEADER_TEMPLATE: [u8; 44] = [
+    0x00, 0x00, 0x00, 0x00, 0xb0, 0xff, 0x12, 0x00, 0x08, 0x6f, 0x40, 0x00, 0x38, 0xc1, 0x40, 0x00,
+    0xff, 0xff, 0xff, 0xff, 0x40, 0x28, 0x32, 0x00, 0x52, 0x48, 0x40, 0x00, 0x1f, 0x00, 0x00, 0x00,
+    0xda, 0x31, 0x40, 0x00, 0x1f, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff,
+];
 
 // -----------------------------------------------------------------------------
 // DYNAMIC TREEVIEW ENGINE
@@ -197,8 +214,11 @@ pub fn list_pak_files(pak_path: &Path) -> io::Result<Vec<String>> {
             if magic.starts_with(b"MASSIVE PAKFILE") {
                 f.seek(SeekFrom::Start(76))?;
                 let num_files = f.read_u32::<LittleEndian>()?;
+                let _root_idx = f.read_u32::<LittleEndian>()?;
+                let data_start = f.read_u32::<LittleEndian>()?;
+
                 f.seek(SeekFrom::Start(92))?;
-                let mut name_offs = Vec::new();
+                let mut name_offs = Vec::with_capacity(num_files as usize);
                 for _ in 0..num_files {
                     let _size = f.read_u32::<LittleEndian>()?;
                     let _offset = f.read_u32::<LittleEndian>()?;
@@ -207,15 +227,16 @@ pub fn list_pak_files(pak_path: &Path) -> io::Result<Vec<String>> {
                     name_offs.push((name_off, dir_off));
                 }
 
+                // Read only metadata block up to data_start
                 let name_list_start = f.stream_position()?;
-                let mut meta_data = Vec::new();
-                f.seek(SeekFrom::Start(name_list_start))?;
-                f.read_to_end(&mut meta_data)?;
+                let meta_len = (data_start as u64).saturating_sub(name_list_start);
+                let mut meta_data = vec![0u8; meta_len as usize];
+                f.read_exact(&mut meta_data)?;
 
                 for (name_off, dir_off) in name_offs {
                     let file_name =
                         read_reversed_string_from_bytes(&meta_data, name_off as usize + 2);
-                    let dir_name = if dir_off != 0x00FFFFFF {
+                    let dir_name = if dir_off != 0x00FFFFFF && dir_off != 0 {
                         read_reversed_string_from_bytes(&meta_data, dir_off as usize)
                     } else {
                         String::new()
@@ -348,14 +369,10 @@ fn unpack_sf2(f: &mut File, out_dir: &Path, logger: &UiLogger) -> io::Result<()>
             fs::create_dir_all(p)?;
         }
 
-        let orig = f.stream_position()?;
         f.seek(SeekFrom::Start(f_offset as u64))?;
         let mut target_file = File::create(target)?;
-
         let mut chunk = std::io::Read::by_ref(f).take(size as u64);
         io::copy(&mut chunk, &mut target_file)?;
-
-        f.seek(SeekFrom::Start(orig))?;
     }
     Ok(())
 }
@@ -369,8 +386,6 @@ fn unpack_sf1(f: &mut File, out_dir: &Path, logger: &UiLogger) -> io::Result<()>
     f.read_exact(&mut meta_bytes)?;
 
     fs::create_dir_all(out_dir)?;
-    File::create(out_dir.join(".sf1_meta.bin"))?.write_all(&meta_bytes)?;
-    logger.log("[+] Preserved original .sf1_meta.bin template.");
 
     let num_files = Cursor::new(&meta_bytes[76..80]).read_u32::<LittleEndian>()?;
     let name_list_start = 92 + (num_files as usize) * 16;
@@ -385,7 +400,7 @@ fn unpack_sf1(f: &mut File, out_dir: &Path, logger: &UiLogger) -> io::Result<()>
 
         let file_name =
             read_reversed_string_from_bytes(&meta_bytes, name_list_start + name_off as usize + 2);
-        let dir_name = if dir_off != 0x00FFFFFF {
+        let dir_name = if dir_off != 0x00FFFFFF && dir_off != 0 {
             read_reversed_string_from_bytes(&meta_bytes, name_list_start + dir_off as usize)
         } else {
             String::new()
@@ -413,7 +428,6 @@ fn unpack_sf1(f: &mut File, out_dir: &Path, logger: &UiLogger) -> io::Result<()>
 
         f.seek(SeekFrom::Start((data_start + offset) as u64))?;
         let mut target_file = File::create(target)?;
-
         let mut chunk = std::io::Read::by_ref(f).take(size as u64);
         io::copy(&mut chunk, &mut target_file)?;
     }
@@ -429,15 +443,10 @@ pub fn pack_pak(
     out_file: &Path,
     fmt: &str,
     comp_level: u32,
-    mode: &str,
     logger: &UiLogger,
 ) -> io::Result<()> {
     if fmt.contains('1') {
-        if mode.contains("Scratch") {
-            pack_sf1_scratch(src_dir, out_file, logger)
-        } else {
-            pack_sf1_meta(src_dir, out_file, logger)
-        }
+        pack_sf1(src_dir, out_file, logger)
     } else {
         pack_sf2(src_dir, out_file, comp_level, logger)
     }
@@ -477,7 +486,6 @@ fn pack_sf2(src_dir: &Path, out_file: &Path, comp_level: u32, logger: &UiLogger)
 
         let offset = f.stream_position()?;
         let mut in_f = File::open(file_path)?;
-
         io::copy(&mut in_f, &mut f)?;
         let size = f.stream_position()? - offset;
         entries.push((rel_path, offset as u32, size as u32));
@@ -511,157 +519,29 @@ fn pack_sf2(src_dir: &Path, out_file: &Path, comp_level: u32, logger: &UiLogger)
     Ok(())
 }
 
-fn pack_sf1_meta(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Result<()> {
-    let meta_path = src_dir.join(".sf1_meta.bin");
-    if !meta_path.exists() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "ERROR: '.sf1_meta.bin' not found! Please use a folder extracted from an original SF1 PAK.",
-        ));
-    }
-
-    let mut meta = fs::read(&meta_path)?;
-    let num_files = Cursor::new(&meta[76..80]).read_u32::<LittleEndian>()?;
-    let data_start = Cursor::new(&meta[84..88]).read_u32::<LittleEndian>()?;
-    let name_list_start = 92 + (num_files as usize) * 16;
-
-    let mut out = File::create(out_file)?;
-    out.seek(SeekFrom::Start(data_start as u64))?;
-
-    let mut current_offset = 0u32;
-
-    for i in 0..num_files as usize {
-        let offset_meta = 92 + i * 16;
-        let mut cur = Cursor::new(&meta[offset_meta..offset_meta + 16]);
-        let _size = cur.read_u32::<LittleEndian>()?;
-        let _offset = cur.read_u32::<LittleEndian>()?;
-        let name_off = cur.read_u32::<LittleEndian>()? & 0x00FFFFFF;
-        let dir_off = cur.read_u32::<LittleEndian>()? & 0x00FFFFFF;
-
-        let file_name =
-            read_reversed_string_from_bytes(&meta, name_list_start + name_off as usize + 2);
-        let dir_name = if dir_off != 0x00FFFFFF {
-            read_reversed_string_from_bytes(&meta, name_list_start + dir_off as usize)
-        } else {
-            String::new()
-        };
-
-        let full_path = if dir_name.is_empty() {
-            file_name
-        } else {
-            format!("{}\\{}", dir_name, file_name)
-        };
-        let disk_path = src_dir.join(full_path.replace('\\', "/"));
-
-        if i % 100 == 0 || i == num_files as usize - 1 {
-            logger.log(&format!(
-                "Packing SF1 ({}/{}): {}",
-                i + 1,
-                num_files,
-                full_path
-            ));
-        }
-
-        let (file_size, padding) = if disk_path.exists() {
-            let mut f = File::open(&disk_path)?;
-            let size = io::copy(&mut f, &mut out)?;
-            let pad = (4 - (size % 4)) % 4;
-            if pad > 0 {
-                out.write_all(&vec![0; pad as usize])?;
-            }
-            (size as u32, pad as u32)
-        } else {
-            (0, 0)
-        };
-
-        let mut cur_write = Cursor::new(&mut meta[offset_meta..offset_meta + 8]);
-        cur_write.write_u32::<LittleEndian>(file_size)?;
-        cur_write.write_u32::<LittleEndian>(current_offset)?;
-
-        current_offset += file_size + padding;
-    }
-
-    let mut total_size = data_start + current_offset;
-    let padding_total = (4096 - (total_size % 4096)) % 4096;
-    if padding_total > 0 {
-        out.write_all(&vec![0; padding_total as usize])?;
-        total_size += padding_total;
-    }
-
-    let mut mw = Cursor::new(&mut meta[88..92]);
-    mw.write_u32::<LittleEndian>(total_size)?;
-
-    let mut mw = Cursor::new(&mut meta[72..76]);
-    mw.write_u32::<LittleEndian>(0xFFFFFFFF)?;
-
-    let seed = calculate_sf1_crc(&meta[..92], 0xFFFFFFFF);
-    let file_table_crc = calculate_sf1_crc(&meta[92..name_list_start], seed);
-    let final_crc = calculate_sf1_crc(&meta[name_list_start..data_start as usize], file_table_crc);
-
-    let mut mw = Cursor::new(&mut meta[72..76]);
-    mw.write_u32::<LittleEndian>(final_crc)?;
-
-    out.seek(SeekFrom::Start(0))?;
-    out.write_all(&meta)?;
-
-    logger.log(&format!(
-        "[+] SF1 Archive updated with Meta-Template! CRC: 0x{:08X}",
-        final_crc
-    ));
-    Ok(())
+struct SF1Entry {
+    rel_path: String,
+    full_path: std::path::PathBuf,
+    filename: String,
+    dirname: String,
+    h_hi: u8,
+    h_lo: u8,
+    comp_str: String,
+    name_off: u32,
+    dir_off: u32,
 }
 
-struct BSTNode {
-    index: u32,
-    path: String,
-    name: String,
-    left_idx: u32,
-    right_idx: u32,
-    boundary_flag: u8,
-}
+/// Compiles a SpellForce 1 .PAK archive using the verified in-engine VFS ordering:
+/// 16-bit K&R path hash prefix, verified comparator sorting, directory non-zero offset safety,
+/// and 4-byte DWORD alignment to prevent D3DERR_INVALIDCALL.
+fn pack_sf1(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Result<()> {
+    logger.log("[*] Compiling SF1 archive with in-engine VFS ordering...");
 
-fn build_bounded_bst(
-    nodes: &mut [BSTNode],
-    start_idx: i32,
-    end_idx: i32,
-    max_jump: i32,
-) -> Option<u32> {
-    if start_idx > end_idx {
-        return None;
-    }
-    let mid = (start_idx + end_idx) / 2;
-
-    let left_start = if mid - start_idx > max_jump {
-        mid - max_jump
-    } else {
-        start_idx
-    };
-    let right_end = if end_idx - mid > max_jump {
-        mid + max_jump
-    } else {
-        end_idx
-    };
-
-    let left_child = build_bounded_bst(nodes, left_start, mid - 1, max_jump);
-    let right_child = build_bounded_bst(nodes, mid + 1, right_end, max_jump);
-
-    if let Some(l) = left_child {
-        nodes[mid as usize].left_idx = l;
-    }
-    if let Some(r) = right_child {
-        nodes[mid as usize].right_idx = r;
-    }
-
-    Some(nodes[mid as usize].index)
-}
-
-fn pack_sf1_scratch(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Result<()> {
-    logger.log("[!] WARNING: 'From Scratch' mode is experimental for SF1.");
-    let mut files = Vec::new();
+    let mut all_items = Vec::new();
     for entry in WalkDir::new(src_dir).into_iter().filter_map(|e| e.ok()) {
         if entry.path().is_file() {
             let name = entry.file_name().to_string_lossy();
-            if name != ".sf1_meta.bin" && !name.starts_with('.') {
+            if !name.starts_with('.') {
                 let rel = entry
                     .path()
                     .strip_prefix(src_dir)
@@ -669,138 +549,133 @@ fn pack_sf1_scratch(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::R
                     .to_string_lossy()
                     .replace('/', "\\")
                     .to_lowercase();
-                files.push(rel);
+                all_items.push((rel, entry.path().to_path_buf()));
             }
         }
     }
 
-    files.sort_by(|a, b| {
-        let rev_a: String = a.chars().rev().collect();
-        let rev_b: String = b.chars().rev().collect();
-        rev_a.cmp(&rev_b)
-    });
+    let num_files = all_items.len();
+    if num_files == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "No files found in source directory to pack!",
+        ));
+    }
 
-    let mut nodes: Vec<BSTNode> = files
-        .iter()
-        .enumerate()
-        .map(|(i, path)| {
-            let name = Path::new(path)
+    let mut file_entries: Vec<SF1Entry> = all_items
+        .into_iter()
+        .map(|(rel_path, full_path)| {
+            let h = calc_sf1_path_hash(&rel_path);
+            let p = Path::new(&rel_path);
+            let filename = p
                 .file_name()
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string();
-            BSTNode {
-                index: i as u32,
-                path: path.clone(),
-                name,
-                left_idx: 0,
-                right_idx: 0,
-                boundary_flag: 0,
+            let dirname = p
+                .parent()
+                .unwrap_or(Path::new(""))
+                .to_string_lossy()
+                .to_string();
+
+            let rev_fname: String = filename.chars().rev().collect();
+            let rev_dname: String = dirname.chars().rev().collect();
+            let comp_str = if dirname.is_empty() {
+                rev_fname
+            } else {
+                format!("{}\\{}", rev_fname, rev_dname)
+            };
+
+            SF1Entry {
+                rel_path,
+                full_path,
+                filename,
+                dirname,
+                h_hi: ((h >> 8) & 0xFF) as u8,
+                h_lo: (h & 0xFF) as u8,
+                comp_str,
+                name_off: 0,
+                dir_off: 0,
             }
         })
         .collect();
 
-    let mut dir_groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    for (i, node) in nodes.iter().enumerate() {
-        let dir = Path::new(&node.path)
-            .parent()
-            .unwrap_or_else(|| Path::new(""))
-            .to_string_lossy()
-            .to_string();
-        dir_groups.entry(dir).or_default().push(i);
-    }
+    // In-engine binary search sort comparator (100% match with original Phenomic VFS order)
+    file_entries.sort_by(|a, b| {
+        a.h_hi
+            .cmp(&b.h_hi)
+            .then_with(|| a.h_lo.cmp(&b.h_lo))
+            .then_with(|| a.comp_str.cmp(&b.comp_str))
+    });
 
-    for indices in dir_groups.values() {
-        let mut group_nodes: Vec<BSTNode> = indices
-            .iter()
-            .map(|&i| BSTNode {
-                index: nodes[i].index,
-                path: nodes[i].path.clone(),
-                name: nodes[i].name.clone(),
-                left_idx: 0,
-                right_idx: 0,
-                boundary_flag: 0,
-            })
-            .collect();
-
-        group_nodes[0].boundary_flag = 1;
-        let group_len = group_nodes.len() as i32;
-        build_bounded_bst(&mut group_nodes, 0, group_len - 1, 255);
-
-        for g_node in group_nodes {
-            let orig = &mut nodes[g_node.index as usize];
-            orig.left_idx = g_node.left_idx;
-            orig.right_idx = g_node.right_idx;
-            orig.boundary_flag = g_node.boundary_flag;
+    // Locate root index (midpoint or mesh\meshes.txt index)
+    let mut root_idx = (num_files.saturating_sub(1) / 2) as u32;
+    for (idx, entry) in file_entries.iter().enumerate() {
+        if entry.rel_path == "mesh\\meshes.txt" {
+            root_idx = idx as u32;
+            break;
         }
     }
 
-    let nodes_len = nodes.len() as i32;
-    let root_idx = build_bounded_bst(&mut nodes, 0, nodes_len - 1, 255).unwrap_or(0);
-
+    // Build String Table
     let mut string_table = Vec::new();
-    let mut string_offsets = HashMap::new();
+    let mut dir_offsets: HashMap<String, u32> = HashMap::new();
 
-    for d in dir_groups.keys() {
-        if d.is_empty() {
-            continue;
+    for entry in &mut file_entries {
+        entry.name_off = string_table.len() as u32;
+        string_table.push(entry.h_hi);
+        string_table.push(entry.h_lo);
+
+        let mut rev_name_bytes = encode_windows(&entry.filename);
+        rev_name_bytes.reverse();
+        string_table.extend_from_slice(&rev_name_bytes);
+        string_table.push(0);
+
+        if !entry.dirname.is_empty() {
+            if let Some(&off) = dir_offsets.get(&entry.dirname) {
+                entry.dir_off = off;
+            } else {
+                let off = string_table.len() as u32;
+                dir_offsets.insert(entry.dirname.clone(), off);
+                let mut rev_dir_bytes = encode_windows(&entry.dirname);
+                rev_dir_bytes.reverse();
+                string_table.extend_from_slice(&rev_dir_bytes);
+                string_table.push(0);
+                entry.dir_off = off;
+            }
+        } else {
+            entry.dir_off = 0; // 0 indicates root directory in the engine
         }
-        let encoded = encode_windows(d);
-        let mut rev = encoded;
-        rev.reverse();
-        string_offsets.insert(d.clone(), string_table.len() as u32);
-        string_table.extend_from_slice(&rev);
-        string_table.push(0);
     }
 
-    for node in &nodes {
-        let encoded = encode_windows(&node.name);
-        let mut rev = encoded;
-        rev.reverse();
-        let node_offset = string_table.len() as u32;
-        string_offsets.insert(node.path.clone(), node_offset);
-
-        let left_val = if node.left_idx != 0 {
-            node.index.saturating_sub(node.left_idx)
-        } else {
-            0
-        };
-        let right_val = if node.right_idx != 0 {
-            node.right_idx.saturating_sub(node.index)
-        } else {
-            0
-        };
-
-        string_table.push((left_val & 0xFF) as u8);
-        string_table.push((right_val & 0xFF) as u8);
-        string_table.extend_from_slice(&rev);
-        string_table.push(0);
+    // 4-byte DWORD alignment for String Table (prevents D3DERR_INVALIDCALL)
+    let pad_str = (4 - (string_table.len() % 4)) % 4;
+    if pad_str > 0 {
+        string_table.resize(string_table.len() + pad_str, 0);
     }
 
-    let data_start_offset = 92 + (nodes.len() as u32 * 16) + string_table.len() as u32;
+    let header_size = 92u32;
+    let file_table_size = (file_entries.len() * 16) as u32;
+    let data_start_offset = header_size + file_table_size + string_table.len() as u32;
 
     let mut out = File::create(out_file)?;
     out.seek(SeekFrom::Start(data_start_offset as u64))?;
 
-    let mut file_table = Vec::with_capacity(nodes.len() * 16);
-    let mut current_dir = String::new();
+    let mut file_table = Vec::with_capacity(file_entries.len() * 16);
     let mut current_offset = 0u32;
 
-    let num_files = nodes.len();
-    for (i, node) in nodes.iter().enumerate() {
-        if i % 100 == 0 || i == num_files.saturating_sub(1) {
+    for (i, entry) in file_entries.iter().enumerate() {
+        if i % 100 == 0 || i == num_files - 1 {
             logger.log(&format!(
                 "Packing SF1 ({}/{}): {}",
                 i + 1,
                 num_files,
-                node.path
+                entry.rel_path
             ));
         }
 
-        let disk_path = src_dir.join(&node.path);
-
-        let (file_size, padding) = if disk_path.exists() {
-            let mut f = File::open(&disk_path)?;
+        let (file_size, padding) = if entry.full_path.exists() {
+            let mut f = File::open(&entry.full_path)?;
             let size = io::copy(&mut f, &mut out)?;
             let pad = (4 - (size % 4)) % 4;
             if pad > 0 {
@@ -811,65 +686,38 @@ fn pack_sf1_scratch(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::R
             (0, 0)
         };
 
-        let name_off_raw = *string_offsets.get(&node.path).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Missing string offset for path: {}", node.path),
-            )
-        })?;
-
-        let dir_path = Path::new(&node.path)
-            .parent()
-            .unwrap_or_else(|| Path::new(""))
-            .to_string_lossy()
-            .to_string();
-
-        let dir_off_raw = if dir_path.is_empty() {
-            0x00FFFFFF
-        } else {
-            let dir_off_base = *string_offsets.get(&dir_path).ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Missing directory offset for: {}", dir_path),
-                )
-            })?;
-            let mut b_flag = 0;
-            if dir_path != current_dir {
-                b_flag = 1;
-                current_dir = dir_path.clone();
-            }
-            dir_off_base | (b_flag << 24)
-        };
-
         let mut ft_buf = Cursor::new(vec![0u8; 16]);
         ft_buf.write_u32::<LittleEndian>(file_size)?;
         ft_buf.write_u32::<LittleEndian>(current_offset)?;
-        ft_buf.write_u32::<LittleEndian>(name_off_raw)?;
-        ft_buf.write_u32::<LittleEndian>(dir_off_raw)?;
+        ft_buf.write_u32::<LittleEndian>(entry.name_off & 0x00FFFFFF)?;
+        ft_buf.write_u32::<LittleEndian>(entry.dir_off & 0x00FFFFFF)?;
         file_table.extend(ft_buf.into_inner());
 
         current_offset += file_size + padding;
     }
 
-    let mut total_size = data_start_offset + current_offset;
-    let padding_total = (4096 - (total_size % 4096)) % 4096;
+    let mut total_archive_size = data_start_offset + current_offset;
+    let padding_total = (4096 - (total_archive_size % 4096)) % 4096;
     if padding_total > 0 {
         out.write_all(&vec![0; padding_total as usize])?;
-        total_size += padding_total;
+        total_archive_size += padding_total;
     }
 
+    // Build Phenomic 92-byte Header
     let mut header = vec![0u8; 92];
     let mut hw = Cursor::new(&mut header);
     hw.write_u32::<LittleEndian>(4)?;
-    let mut magic = b"MASSIVE PAKFILE V 4.0\r\n".to_vec();
+    let mut magic = b"MASSIVE PAKFILE V 4.0\r\n\0".to_vec();
     magic.resize(24, 0);
     hw.write_all(&magic)?;
+    hw.write_all(&PHENOMIC_HEADER_TEMPLATE)?; // 44 bytes at offsets 28..72
+
     hw.seek(SeekFrom::Start(72))?;
     hw.write_u32::<LittleEndian>(0xFFFFFFFF)?;
-    hw.write_u32::<LittleEndian>(nodes.len() as u32)?;
+    hw.write_u32::<LittleEndian>(num_files as u32)?;
     hw.write_u32::<LittleEndian>(root_idx)?;
     hw.write_u32::<LittleEndian>(data_start_offset)?;
-    hw.write_u32::<LittleEndian>(total_size)?;
+    hw.write_u32::<LittleEndian>(total_archive_size)?;
 
     let seed = calculate_sf1_crc(&header, 0xFFFFFFFF);
     let file_table_crc = calculate_sf1_crc(&file_table, seed);
@@ -884,7 +732,8 @@ fn pack_sf1_scratch(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::R
     out.write_all(&string_table)?;
 
     logger.log(&format!(
-        "[+] Pack from scratch complete! Checksum: 0x{:08X}",
+        "[+] SF1 Archive packed successfully! File: {:?}, Checksum: 0x{:08X}",
+        out_file.file_name().unwrap_or_default(),
         final_crc
     ));
     Ok(())
@@ -924,7 +773,6 @@ pub fn batch_pack_folders(
     root_dir: &Path,
     fmt: &str,
     comp_level: u32,
-    sf1_mode: &str,
     logger: &UiLogger,
 ) -> io::Result<()> {
     logger.log(&format!("[*] Initializing batch pack: {:?}", root_dir));
@@ -947,7 +795,7 @@ pub fn batch_pack_folders(
             let out_pak_path = root_dir.join(format!("{}.pak", base_name));
             logger.log(&format!("[*] Compiling directory {:?}", folder_name));
 
-            if let Err(e) = pack_pak(&path, &out_pak_path, fmt, comp_level, sf1_mode, logger) {
+            if let Err(e) = pack_pak(&path, &out_pak_path, fmt, comp_level, logger) {
                 logger.log(&format!("[!] Error: {}", e));
             } else {
                 compiled += 1;

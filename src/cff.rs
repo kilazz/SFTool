@@ -69,8 +69,9 @@ pub fn decode_windows(bytes: &[u8]) -> String {
         return utf8_str.to_string();
     }
 
+    // Heuristic for Cyrillic: in CP1251, Russian characters fall in 0xC0..0xFF
     let cyrillic_hits = bytes.iter().filter(|&&b| b >= 0xC0).count();
-    if cyrillic_hits > 0 {
+    if cyrillic_hits >= 2 {
         let (cow, _, had_errors) = WINDOWS_1251.decode(bytes);
         if !had_errors {
             return cow.into_owned();
@@ -901,7 +902,8 @@ pub fn pack_all(
         File::open(header_path)?.read_to_end(&mut header)?;
         out.write_all(&header)?;
     } else if fmt_type == "sf1" {
-        out.write_i32::<LittleEndian>(-579674862)?;
+        // Raw bytes for original SF1 CFF signature
+        out.write_all(b"\x02\xc5\x72\xdd")?;
         out.write_all(&[0u8; 16])?;
     } else {
         out.write_all(b"\x12\xdd\x72\xdd")?;

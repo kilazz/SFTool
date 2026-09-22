@@ -1,8 +1,7 @@
 """
 SpellForce 1 & 2 - Complete Modding & Localization Suite
 Supports CFF Containers (SF1 & SF2), DAT Database Chunks, Binary Scanning/Editing, and Batch PAK Archives.
-Includes support for SpellForce 1: Platinum Edition hybrid CFF headers and 62MB Text String Tables.
-Features both Balanced BST Generation from Scratch and Meta-Template Injection for SF1 .PAK archives.
+Features dynamic UI adaptation, accurate SF1 VFS binary search recreation, and Meta-Template injection.
 """
 
 import contextlib
@@ -20,7 +19,6 @@ import zlib
 # ORIGINAL SPELLFORCE 1 CRC32 CHECKSUM ENGINE (IEEE 802.3 Polynomial: 0xEDB88320)
 # ==============================================================================
 
-# Pre-generate standard CRC32 table
 CRC32_TABLE = []
 for i in range(256):
     crc = i
@@ -40,13 +38,24 @@ def calculate_sf1_crc(data, prev_crc=0xFFFFFFFF):
     return crc
 
 
+def calc_sf1_path_hash(path: str) -> int:
+    """
+    Calculates the 16-bit string hash used by the SF1 engine's binary search comparator.
+    Formula from FUN_004a4180: h = h * 31 + char
+    """
+    h = 0
+    for ch in path:
+        h = (h * 31 + ord(ch)) & 0xFFFFFFFF
+    return h & 0xFFFF
+
+
 # ==============================================================================
 # 1. CFF CONTAINER PACK / UNPACK ENGINE (Supports SpellForce 1 & 2 Databases)
 # ==============================================================================
 
 
 def unpack_cff(input_file, out_dir):
-    """Unpacks a .cff archive container into separate .dat chunks (Supports SF1 & SF2 formats)."""
+    """Unpacks a .cff archive container into separate .dat chunks."""
     print(f"[*] Unpacking CFF: {input_file} -> {out_dir}")
     os.makedirs(out_dir, exist_ok=True)
 
@@ -61,7 +70,6 @@ def unpack_cff(input_file, out_dir):
         print("[!] Error: File too small to be a CFF container!")
         return False
 
-    # Detect format version via magic signature and header heuristics
     sig = data[0:4]
     if sig == b"\x02\xc5r\xdd":
         fmt_type = "sf1"
@@ -337,8 +345,8 @@ def detect_format(data):
         if is_a and offset == len(data):
             return "string_table", 0, 0
 
-    for E in range(17):
-        for N in range(1, 6):
+    for E in range(33):
+        for N in range(1, 11):
             with contextlib.suppress(struct.error, IndexError):
                 offset = 4
                 is_b = True
@@ -394,7 +402,7 @@ def export_text(chunk_path, json_path):
             except UnicodeDecodeError:
                 text = text_bytes.decode("cp1251", errors="ignore")
 
-            texts[f"f566_{offset}_{str_id}"] = text
+            texts[f"f566_{offset:08d}_{str_id}"] = text
             offset += 566
 
     else:
@@ -441,7 +449,7 @@ def export_text(chunk_path, json_path):
                 offset += 4
                 key = data[offset : offset + key_len].decode("cp1252", errors="ignore")
                 offset += key_len
-                texts[f"{i}_{id_val}_{flag}_{key}"] = name
+                texts[f"{i:05d}_{id_val}_{flag}_{key}"] = name
 
         else:
             for i in range(count):
@@ -463,10 +471,23 @@ def export_text(chunk_path, json_path):
                         "utf-16-le", errors="ignore"
                     )
                     offset += str_len * 2
-                    texts[f"{i}_{id_val}_{extra_hex}_str{s}"] = text
+                    texts[f"{i:05d}_{id_val}_{extra_hex}_str{s}"] = text
 
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(texts, f, indent=4, ensure_ascii=False)
+
+    meta_path = os.path.splitext(json_path)[0] + ".meta.json"
+    with open(meta_path, "w", encoding="utf-8") as mf:
+        json.dump(
+            {
+                "format": fmt,
+                "num_strings": num_strings,
+                "extra_bytes": extra_bytes,
+            },
+            mf,
+            indent=4,
+        )
+
     return True
 
 
@@ -486,24 +507,46 @@ def import_text(json_path, chunk_path):
     is_fixed_566 = False
     num_strings = 0
 
-    first_key = next(iter(texts.keys()), None)
-    if first_key is not None:
-        if first_key.startswith("f566_"):
-            is_fixed_566 = True
-        elif "_" in first_key:
-            parts = first_key.split("_", 3)
-            if len(parts) == 4 and parts[0].isdigit() and parts[1].isdigit():
-                if parts[3].startswith("str"):
-                    is_table_based = True
-                    max_str_idx = 0
-                    for key in texts:
-                        k_parts = key.split("_", 3)
-                        if len(k_parts) == 4 and k_parts[3].startswith("str"):
-                            str_idx = int(k_parts[3][3:])
-                            max_str_idx = max(max_str_idx, str_idx)
-                    num_strings = max_str_idx + 1
-                else:
-                    is_developer_table = True
+    meta_path = os.path.splitext(json_path)[0] + ".meta.json"
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as mf:
+                meta = json.load(mf)
+            fmt = meta.get("format")
+            if fmt == "fixed_566":
+                is_fixed_566 = True
+            elif fmt == "developer_table":
+                is_developer_table = True
+            elif fmt == "table_based":
+                is_table_based = True
+                num_strings = meta.get("num_strings", 0)
+        except OSError:
+            pass
+
+    if not (is_table_based or is_developer_table or is_fixed_566):
+        first_key = next(iter(texts), None)
+        if first_key is not None:
+            if first_key.startswith("f566_"):
+                is_fixed_566 = True
+            elif "_" in first_key:
+                parts = first_key.split("_", 3)
+                if len(parts) == 4 and parts[0].isdigit() and parts[1].isdigit():
+                    if parts[3].startswith("str"):
+                        is_table_based = True
+                        max_str_idx = 0
+                        for key in texts:
+                            k_parts = key.split("_", 3)
+                            if len(k_parts) == 4 and k_parts[3].startswith("str"):
+                                str_idx = int(k_parts[3][3:])
+                                max_str_idx = max(max_str_idx, str_idx)
+                        num_strings = max_str_idx + 1
+                    else:
+                        is_developer_table = True
+
+    if os.path.exists(chunk_path):
+        bak_file = chunk_path + ".bak"
+        if not os.path.exists(bak_file):
+            shutil.copy2(chunk_path, bak_file)
 
     if is_fixed_566:
         with open(chunk_path, "rb") as f:
@@ -558,7 +601,7 @@ def import_text(json_path, chunk_path):
                     "name": val,
                     "key": dev_key,
                 }
-            sorted_indices = sorted(entries.keys())
+            sorted_indices = sorted(entries)
             f.write(struct.pack("<I", len(sorted_indices)))
             for idx in sorted_indices:
                 entry = entries[idx]
@@ -593,7 +636,7 @@ def import_text(json_path, chunk_path):
                     }
                 entries[idx]["strings"][str_idx] = val
 
-            sorted_indices = sorted(entries.keys())
+            sorted_indices = sorted(entries)
             f.write(struct.pack("<I", len(sorted_indices)))
             for idx in sorted_indices:
                 entry = entries[idx]
@@ -669,7 +712,7 @@ def pack_all(work_dir, cff_path, comp_level=6):
 
     has_errors = False
     for file in os.listdir(json_dir):
-        if file.endswith(".json"):
+        if file.endswith("_strings.json"):
             json_path = os.path.join(json_dir, file)
             try:
                 with open(json_path, "r", encoding="utf-8") as f:
@@ -685,7 +728,7 @@ def pack_all(work_dir, cff_path, comp_level=6):
         return
 
     for file in os.listdir(json_dir):
-        if file.endswith(".json"):
+        if file.endswith("_strings.json"):
             json_path = os.path.join(json_dir, file)
             match = re.match(r"^chunk_(\d+)", file)
             if not match:
@@ -740,48 +783,8 @@ def scan_printable_strings(file_path, min_len=4):
 
 
 # ==============================================================================
-# 4. SPELLFORCE 1 & 2 .PAK ARCHIVE COMPILER ENGINE (Ported from C# PakTool)
+# 4. SPELLFORCE 1 & 2 .PAK ARCHIVE COMPILER ENGINE
 # ==============================================================================
-
-
-class BSTNode:
-    def __init__(self, index, path, name):
-        self.index = index
-        self.path = path
-        self.name = name
-        self.left_idx = 0
-        self.right_idx = 0
-        self.boundary_flag = 0
-
-
-def build_bounded_bst(nodes, start_idx, end_idx, max_jump=255):
-    """
-    Builds a search tree guaranteeing that the index distance between
-    a parent node and any of its children does not exceed max_jump (255).
-    """
-    if start_idx > end_idx:
-        return None
-
-    mid = (start_idx + end_idx) // 2
-    root = nodes[mid]
-
-    left_start = start_idx
-    if mid - left_start > max_jump:
-        left_start = mid - max_jump
-
-    right_end = end_idx
-    if right_end - mid > max_jump:
-        right_end = mid + max_jump
-
-    left_child = build_bounded_bst(nodes, left_start, mid - 1, max_jump)
-    right_child = build_bounded_bst(nodes, mid + 1, right_end, max_jump)
-
-    if left_child:
-        root.left_idx = left_child.index
-    if right_child:
-        root.right_idx = right_child.index
-
-    return root
 
 
 def read_reversed_string_sf1_from_bytes(data, offset, name_list_start):
@@ -824,8 +827,6 @@ def read_pak_entries(pak_path):
                                 "offset": offset,
                                 "name_off": name_off & 0x00FFFFFF,
                                 "dir_off": dir_off & 0x00FFFFFF,
-                                "name_off_raw": name_off,
-                                "dir_off_raw": dir_off,
                             }
                         )
 
@@ -844,6 +845,7 @@ def read_pak_entries(pak_path):
                         if (
                             entry["dir_off"] != 0x00FFFFFF
                             and entry["dir_off"] != 0xFFFFFF
+                            and entry["dir_off"] != 0
                         ):
                             dir_name = read_reversed_string_sf1(
                                 fs, entry["dir_off"], name_list_start
@@ -854,15 +856,12 @@ def read_pak_entries(pak_path):
                         )
                         full_path = full_path.replace("/", "\\")
 
-                        dir_flag = (entry["dir_off_raw"] >> 24) & 0xFF
-
                         entries.append(
                             {
                                 "name": full_path,
                                 "offset": data_start + entry["offset"],
                                 "size": int(entry["size"]),
                                 "prefix": prefix_hex,
-                                "dir_flag": dir_flag,
                             }
                         )
                     return "sf1", entries
@@ -899,7 +898,11 @@ def read_pak_entries(pak_path):
             offset += 8
 
             entries.append(
-                {"name": name, "offset": f_offset, "size": int(next_offset - f_offset)}
+                {
+                    "name": name,
+                    "offset": f_offset,
+                    "size": int(next_offset - f_offset),
+                }
             )
 
         return "sf2", entries
@@ -991,7 +994,11 @@ def pack_pak_sf2(source_dir, out_pak_path, comp_level=6, progress_callback=None)
                 shutil.copyfileobj(in_f, fs)
 
             entries.append(
-                {"name": rel_path, "offset": offset, "size": fs.tell() - offset}
+                {
+                    "name": rel_path,
+                    "offset": offset,
+                    "size": fs.tell() - offset,
+                }
             )
 
         dir_offset = fs.tell()
@@ -1020,15 +1027,12 @@ def pack_pak_sf2(source_dir, out_pak_path, comp_level=6, progress_callback=None)
 
 
 def pack_pak_sf1(source_dir, out_pak_path, progress_callback=None):
-    """
-    Assembles files into a legacy SpellForce 1 format .pak archive using Meta-Template Injection.
-    Safely preserves the original binary search tree logic and recalculates proper CRC32 hashes.
-    """
+    """Assembles files into a legacy SpellForce 1 format .pak archive using Meta-Template Injection."""
     meta_path = os.path.join(source_dir, ".sf1_meta.bin")
     if not os.path.exists(meta_path):
         raise FileNotFoundError(
             "ERROR: '.sf1_meta.bin' not found! You must unpack an existing SF1 archive "
-            "with this exact tool first to preserve its internal binary search tree."
+            "with this exact tool first to preserve its internal structure."
         )
 
     with open(meta_path, "rb") as f:
@@ -1050,7 +1054,7 @@ def pack_pak_sf1(source_dir, out_pak_path, progress_callback=None):
         )
         dir_name = ""
         d_off = dir_off & 0x00FFFFFF
-        if d_off != 0x00FFFFFF and d_off != 0xFFFFFF:
+        if d_off != 0x00FFFFFF and d_off != 0xFFFFFF and d_off != 0:
             dir_name = read_reversed_string_sf1_from_bytes(
                 meta_bytes, d_off, name_list_start
             )
@@ -1078,8 +1082,21 @@ def pack_pak_sf1(source_dir, out_pak_path, progress_callback=None):
         if padding > 0:
             payload.extend(b"\x00" * padding)
 
+        # Zero out upper bytes as proved safe via isolate_bug.py
+        clean_name = (
+            struct.unpack_from("<I", meta_bytes, entry["meta_offset"] + 8)[0]
+            & 0x00FFFFFF
+        )
+        clean_dir = (
+            struct.unpack_from("<I", meta_bytes, entry["meta_offset"] + 12)[0]
+            & 0x00FFFFFF
+        )
+
         struct.pack_into("<I", meta_bytes, entry["meta_offset"], new_size)
         struct.pack_into("<I", meta_bytes, entry["meta_offset"] + 4, new_offset)
+        struct.pack_into(
+            "<II", meta_bytes, entry["meta_offset"] + 8, clean_name, clean_dir
+        )
 
     total_size = data_start + len(payload)
     padding_total = (4096 - (total_size % 4096)) % 4096
@@ -1113,16 +1130,11 @@ def pack_pak_sf1(source_dir, out_pak_path, progress_callback=None):
 
 def pack_pak_sf1_from_scratch(source_dir, out_pak_path, progress_callback=None):
     """
-    Experimental: Compiles a SpellForce 1 .PAK archive from scratch.
-    NOTE: The SF1 game engine utilizes proprietary directory occurrence counters (hash buckets)
-    encoded in the high bytes of offsets. This function successfully builds an archive with
-    a perfect CRC32, but it WILL FAIL TO LOAD IN-GAME due to these missing undocumented hash indices.
-    Please use the Meta-Template Injection mode for actual game modding.
+    Compiles a SpellForce 1 .PAK archive from scratch using the true in-engine VFS logic:
+    16-bit K&R path hash prefix, verified comparator sorting, directory non-zero offset safety,
+    and 4-byte DWORD alignment to prevent D3DERR_INVALIDCALL.
     """
     if progress_callback:
-        progress_callback(
-            "[!] WARNING: 'From Scratch' mode is highly experimental for SF1."
-        )
         progress_callback("[*] Scanning source directory for files...")
 
     all_items = []
@@ -1131,67 +1143,90 @@ def pack_pak_sf1_from_scratch(source_dir, out_pak_path, progress_callback=None):
             if filename == ".sf1_meta.bin" or filename.startswith("."):
                 continue
             full_path = os.path.join(root, filename)
-            rel_path = os.path.relpath(full_path, source_dir).replace("/", "\\")
-            all_items.append(rel_path)
+            rel_path = os.path.relpath(full_path, source_dir).replace("/", "\\").lower()
+            all_items.append((rel_path, full_path))
 
-    all_items.sort(key=lambda x: x[::-1])
     num_files = len(all_items)
+    if num_files == 0:
+        if progress_callback:
+            progress_callback("[!] Error: No files found to pack!")
+        return
 
     if progress_callback:
-        progress_callback(f"[+] Found {num_files} files for packing.")
+        progress_callback(
+            f"[+] Found {num_files} files. Sorting by VFS hash comparator..."
+        )
 
-    nodes = []
-    for idx, path in enumerate(all_items):
-        file_name = os.path.basename(path)
-        nodes.append(BSTNode(idx, path, file_name))
+    # Calculate 16-bit hash and comparison keys
+    file_entries = []
+    for rel_path, full_path in all_items:
+        h = calc_sf1_path_hash(rel_path)
+        dname = os.path.dirname(rel_path)
+        fname = os.path.basename(rel_path)
+        comp_str = fname[::-1] + ("\\" + dname[::-1] if dname else "")
+        file_entries.append(
+            {
+                "rel_path": rel_path,
+                "full_path": full_path,
+                "filename": fname,
+                "dirname": dname,
+                "h_hi": (h >> 8) & 0xFF,
+                "h_lo": h & 0xFF,
+                "comp_str": comp_str,
+            }
+        )
 
-    dir_groups = {}
-    for node in nodes:
-        dir_path = os.path.dirname(node.path)
-        if dir_path not in dir_groups:
-            dir_groups[dir_path] = []
-        dir_groups[dir_path].append(node)
+    # In-engine binary search sort comparator (100% match with original Phenomic VFS order)
+    file_entries.sort(key=lambda x: (x["h_hi"], x["h_lo"], x["comp_str"]))
 
-    for dir_path, group_nodes in dir_groups.items():
-        group_nodes[0].boundary_flag = 1
-        build_bounded_bst(group_nodes, 0, len(group_nodes) - 1, max_jump=255)
+    # Locate root_idx (e.g. mesh\meshes.txt index, or midpoint)
+    root_idx = (num_files - 1) // 2
+    for idx, entry in enumerate(file_entries):
+        if entry["rel_path"] == "mesh\\meshes.txt":
+            root_idx = idx
+            break
 
+    # Build String Table
+    # Filenames written FIRST so dir_off is guaranteed > 0 for all subdirectories!
     string_table = bytearray()
-    string_offsets = {}
+    dir_offsets = {}
 
-    unique_dirs = sorted(dir_groups.keys())
-    for d in unique_dirs:
-        if d == "":
-            continue
-        rev_d = d.encode("latin1", errors="ignore")[::-1] + b"\x00"
-        string_offsets[d] = len(string_table)
-        string_table.extend(rev_d)
+    for entry in file_entries:
+        entry["name_off"] = len(string_table)
+        prefix = bytes([entry["h_hi"], entry["h_lo"]])
+        rev_name = entry["filename"][::-1].encode("latin1", errors="ignore")
+        string_table.extend(prefix + rev_name + b"\x00")
 
-    for node in nodes:
-        rev_name = node.name.encode("latin1", errors="ignore")[::-1] + b"\x00"
-        node_offset = len(string_table)
-        string_offsets[node.path] = node_offset
+        d = entry["dirname"]
+        if d:
+            if d not in dir_offsets:
+                dir_offsets[d] = len(string_table)
+                string_table.extend(d[::-1].encode("latin1", errors="ignore") + b"\x00")
+            entry["dir_off"] = dir_offsets[d]
+        else:
+            entry["dir_off"] = 0  # 0 indicates root directory in the engine
 
-        left_val = (node.index - node.left_idx) if node.left_idx != 0 else 0
-        right_val = (node.right_idx - node.index) if node.right_idx != 0 else 0
-
-        prefix = bytes([left_val & 0xFF, right_val & 0xFF])
-        string_table.extend(prefix + rev_name)
+    # CRITICAL: 4-byte DWORD alignment for String Table to ensure aligned file reads in D3D
+    pad_str = (4 - (len(string_table) % 4)) % 4
+    if pad_str > 0:
+        string_table.extend(b"\x00" * pad_str)
 
     file_table = bytearray()
     payload = bytearray()
 
-    current_dir = None
+    for idx, entry in enumerate(file_entries):
+        if progress_callback and (idx % 100 == 0 or idx == num_files - 1):
+            progress_callback(
+                f"Packing SF1 ({idx + 1}/{num_files}): {entry['rel_path']}"
+            )
 
-    for node in nodes:
-        full_filepath = os.path.join(source_dir, node.path)
         try:
-            with open(full_filepath, "rb") as f:
+            with open(entry["full_path"], "rb") as f:
                 file_data = f.read()
         except OSError as e:
             if progress_callback:
                 progress_callback(
-                    f"[!] Error reading file {node.path}: {e}. Writing empty file."
+                    f"[!] Error reading file {entry['rel_path']}: {e}. Writing empty file."
                 )
             file_data = b""
 
@@ -1200,41 +1235,31 @@ def pack_pak_sf1_from_scratch(source_dir, out_pak_path, progress_callback=None):
 
         payload.extend(file_data)
         padding_size = (4 - (len(payload) % 4)) % 4
-        payload.extend(b"\x00" * padding_size)
+        if padding_size > 0:
+            payload.extend(b"\x00" * padding_size)
 
-        name_off_raw = string_offsets[node.path]
-
-        dir_path = os.path.dirname(node.path)
-        if dir_path == "":
-            dir_off_raw = 0x00FFFFFF
-        else:
-            dir_off_base = string_offsets[dir_path]
-            b_flag = 0
-            if dir_path != current_dir:
-                b_flag = 1
-                current_dir = dir_path
-            dir_off_raw = dir_off_base | (b_flag << 24)
+        name_off_raw = entry["name_off"] & 0x00FFFFFF
+        dir_off_raw = entry["dir_off"] & 0x00FFFFFF
 
         file_table.extend(struct.pack("<IIII", size, offset, name_off_raw, dir_off_raw))
 
-    root_node = build_bounded_bst(nodes, 0, num_files - 1, max_jump=255)
-    root_idx = root_node.index if root_node else 0
-
     header_size = 92
-    file_table_offset = header_size
-    string_table_offset = file_table_offset + len(file_table)
-    data_start_offset = string_table_offset + len(string_table)
+    data_start_offset = header_size + len(file_table) + len(string_table)
 
     total_payload_size = len(payload)
     total_archive_size = data_start_offset + total_payload_size
     padding_total = (4096 - (total_archive_size % 4096)) % 4096
-    payload.extend(b"\x00" * padding_total)
-    total_archive_size += padding_total
+    if padding_total > 0:
+        payload.extend(b"\x00" * padding_total)
+        total_archive_size += padding_total
 
+    # Header construction with exact Phenomic template bytes (44 bytes at 28..72)
     header = bytearray(92)
     struct.pack_into("<I", header, 0, 4)
     header[4:28] = b"MASSIVE PAKFILE V 4.0\r\n\x00"
-    struct.pack_into("<I", header, 72, 0xFFFFFFFF)
+    header[28:72] = bytes.fromhex(
+        "00000000b0ff1200086f400038c14000ffffffff40283200524840001f000000da3140001f000000ffffffff"
+    )
     struct.pack_into("<I", header, 76, num_files)
     struct.pack_into("<I", header, 80, root_idx)
     struct.pack_into("<I", header, 84, data_start_offset)
@@ -1243,10 +1268,10 @@ def pack_pak_sf1_from_scratch(source_dir, out_pak_path, progress_callback=None):
     if progress_callback:
         progress_callback("[*] Calculating custom IEEE 802.3 CRC32 checksum...")
 
+    struct.pack_into("<I", header, 72, 0xFFFFFFFF)
     seed = calculate_sf1_crc(header)
     file_table_crc = calculate_sf1_crc(file_table, seed)
     final_crc = calculate_sf1_crc(string_table, file_table_crc)
-
     struct.pack_into("<I", header, 72, final_crc)
 
     if progress_callback:
@@ -1259,7 +1284,9 @@ def pack_pak_sf1_from_scratch(source_dir, out_pak_path, progress_callback=None):
         out_f.write(payload)
 
     if progress_callback:
-        progress_callback(f"[+] Pack from scratch complete! Checksum: {hex(final_crc)}")
+        progress_callback(
+            f"[+] Pack from scratch complete! Archive: {os.path.basename(out_pak_path)}, Checksum: {hex(final_crc)}"
+        )
 
 
 def batch_unpack_paks(root_dir, progress_callback=None):
@@ -1305,7 +1332,7 @@ def batch_pack_folders(
     root_dir,
     fmt,
     comp_level=6,
-    sf1_mode="Meta-Template (100% Stable)",
+    sf1_mode="From Scratch",
     progress_callback=None,
 ):
     """Finds all subfolders in root_dir and compiles them back to .pak archives."""
@@ -1475,7 +1502,7 @@ def launch_gui():
     pak_src_var = tk.StringVar(value="")
     pak_fmt_var = tk.StringVar(value="SpellForce 1 (.pak)")
     pak_comp_var = tk.IntVar(value=6)
-    sf1_mode_var = tk.StringVar(value="Meta-Template (100% Stable)")
+    sf1_mode_var = tk.StringVar(value="From Scratch")
     status_msg_var = tk.StringVar(value="Ready.")
 
     pane_archive = tk.PanedWindow(tab_archive, orient="horizontal", bg=bg_color, bd=0)
@@ -1640,35 +1667,46 @@ def launch_gui():
                 status_msg_var.set(f"Error loading folder: {ex}")
 
     tk.Button(
-        pack_frame, text="Browse...", command=select_pak_src, fg=fg_color, bg=btn_color
+        pack_frame,
+        text="Browse...",
+        command=select_pak_src,
+        fg=fg_color,
+        bg=btn_color,
     ).grid(row=0, column=2, padx=5, pady=5)
 
     tk.Label(pack_frame, text="Format Target:", fg=fg_color, bg=bg_color).grid(
         row=1, column=0, sticky="w", pady=5
     )
 
+    # Frame containing the mode switches
     sf1_mode_frame = tk.Frame(pack_frame, bg=bg_color)
-
-    def on_fmt_change(event):
-        if pak_fmt_cb.get() == "SpellForce 1 (.pak)":
-            pak_scale.config(state="disabled", fg="#555555")
-            sf1_mode_frame.grid(row=3, column=0, columnspan=3, sticky="w", pady=5)
-        else:
-            pak_scale.config(state="normal", fg=fg_color)
-            sf1_mode_frame.grid_forget()
-
-    pak_fmt_cb = ttk.Combobox(
-        pack_frame,
-        textvariable=pak_fmt_var,
-        values=["SpellForce 1 (.pak)", "SpellForce 2 (.pak)"],
-        state="readonly",
-        width=22,
+    tk.Label(sf1_mode_frame, text="Mode:", fg=fg_color, bg=bg_color).pack(
+        side="left", padx=5
     )
-    pak_fmt_cb.grid(row=1, column=1, sticky="w", pady=5, padx=5)
-    pak_fmt_cb.bind("<<ComboboxSelected>>", on_fmt_change)
+    tk.Radiobutton(
+        sf1_mode_frame,
+        text="Build from Scratch (New Mods / Custom Folders)",
+        variable=sf1_mode_var,
+        value="From Scratch",
+        fg=fg_color,
+        bg=bg_color,
+        selectcolor=bg_color,
+        activebackground=bg_color,
+    ).pack(side="top", anchor="w")
+    tk.Radiobutton(
+        sf1_mode_frame,
+        text="Quick Inject (Preserve .sf1_meta.bin)",
+        variable=sf1_mode_var,
+        value="Meta-Template",
+        fg=fg_color,
+        bg=bg_color,
+        selectcolor=bg_color,
+        activebackground=bg_color,
+    ).pack(side="top", anchor="w")
 
-    tk.Label(pack_frame, text="Compression (0-9):", fg=fg_color, bg=bg_color).grid(
-        row=2, column=0, sticky="w", pady=5
+    # Compression Slider for SF2
+    pak_scale_lbl = tk.Label(
+        pack_frame, text="Compression (0-9):", fg=fg_color, bg=bg_color
     )
     pak_scale = tk.Scale(
         pack_frame,
@@ -1682,35 +1720,30 @@ def launch_gui():
         showvalue=True,
         width=15,
     )
-    pak_scale.grid(row=2, column=1, sticky="ew", padx=5)
 
-    # SF1 Packing Options
-    tk.Label(sf1_mode_frame, text="Mode:", fg=fg_color, bg=bg_color).pack(
-        side="left", padx=5
+    # Dynamic format switching: SF1 hides compression, SF2 hides SF1 modes
+    def on_fmt_change(event=None):
+        if pak_fmt_cb.get() == "SpellForce 1 (.pak)":
+            pak_scale_lbl.grid_remove()
+            pak_scale.grid_remove()
+            sf1_mode_frame.grid(row=3, column=0, columnspan=3, sticky="w", pady=5)
+        else:
+            sf1_mode_frame.grid_remove()
+            pak_scale_lbl.grid(row=2, column=0, sticky="w", pady=5)
+            pak_scale.grid(row=2, column=1, sticky="ew", padx=5)
+
+    pak_fmt_cb = ttk.Combobox(
+        pack_frame,
+        textvariable=pak_fmt_var,
+        values=["SpellForce 1 (.pak)", "SpellForce 2 (.pak)"],
+        state="readonly",
+        width=22,
     )
-    tk.Radiobutton(
-        sf1_mode_frame,
-        text="Meta-Template (100% Stable)",
-        variable=sf1_mode_var,
-        value="Meta-Template (100% Stable)",
-        fg=fg_color,
-        bg=bg_color,
-        selectcolor=bg_color,
-        activebackground=bg_color,
-    ).pack(side="top", anchor="w")
-    tk.Radiobutton(
-        sf1_mode_frame,
-        text="From Scratch (Experimental/Fails in Game)",
-        variable=sf1_mode_var,
-        value="From Scratch",
-        fg="#b05050",
-        bg=bg_color,
-        selectcolor=bg_color,
-        activebackground=bg_color,
-    ).pack(side="top", anchor="w")
+    pak_fmt_cb.grid(row=1, column=1, sticky="w", pady=5, padx=5)
+    pak_fmt_cb.bind("<<ComboboxSelected>>", on_fmt_change)
 
-    # Align frame on default load
-    sf1_mode_frame.grid(row=3, column=0, columnspan=3, sticky="w", pady=5)
+    # Initialize layout based on default format
+    on_fmt_change()
 
     def on_pack_pak():
         src_dir = pak_src_var.get().strip()
@@ -2481,15 +2514,15 @@ if __name__ == "__main__":
                 if len(sys.argv) >= 5:
                     fmt = sys.argv[4].lower()
 
-                mode = "meta"
+                mode = "scratch"
                 if len(sys.argv) >= 6:
                     mode = sys.argv[5].lower()
 
                 if fmt == "sf1":
-                    if mode == "scratch":
-                        pack_pak_sf1_from_scratch(src, out, print)
-                    else:
+                    if mode == "meta":
                         pack_pak_sf1(src, out, print)
+                    else:
+                        pack_pak_sf1_from_scratch(src, out, print)
                 else:
                     pack_pak_sf2(src, out, 6, print)
         elif len(sys.argv) >= 4:

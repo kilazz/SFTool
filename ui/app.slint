@@ -5,9 +5,9 @@ import {
     ComboBox,
     SpinBox,
     TextEdit,
+    CheckBox,
 } from "std-widgets.slint";
 
-// Custom Premium Dark Button Component with Text Overflow Protection
 component ToolButton inherits Rectangle {
     in property <string> text;
     in property <bool> enabled: true;
@@ -37,61 +37,86 @@ component ToolButton inherits Rectangle {
 }
 
 export component AppWindow inherits Window {
-    title: "SFTool";
-    min-width: 1020px;
-    min-height: 720px;
-    preferred-width: 1020px;
-    preferred-height: 720px;
+    title: "SFTool v2.0 - SpellForce Modding Suite";
+    min-width: 1040px;
+    min-height: 740px;
+    preferred-width: 1040px;
+    preferred-height: 740px;
     background: #141414;
 
     in-out property <int> active_tab: 0;
+
+    // --- PAK State ---
     in-out property <string> selected_pak: "";
     in-out property <string> selected_folder: "";
-    in-out property <string> selected_cff: "";
-    in-out property <string> selected_cff_dir: "";
-    in-out property <string> selected_dat: "";
-    in-out property <string> filter_text: "";
-
-    in-out property <string> persisted_pak_fmt: "SpellForce 2 (.pak)";
-    in-out property <string> persisted_sf1_mode: "Meta-Template (100% Stable)";
+    in-out property <string> persisted_pak_fmt: "SpellForce 1 (.pak)";
     in-out property <int> persisted_pak_comp: 6;
-    in-out property <int> persisted_cff_comp: 6;
-
-    in-out property <string> log_text: "System Ready.\n";
-    in-out property <string> status_msg: "Ready.";
     in-out property <[StandardListViewItem]> archive_files: [];
 
+    // --- CFF State ---
+    in-out property <string> selected_cff: "";
+    in-out property <string> selected_cff_dir: "";
+    in-out property <int> persisted_cff_comp: 6;
+
+    // --- Inspector State ---
+    in-out property <string> selected_dat: "";
+    in-out property <string> filter_text: "";
+    in-out property <string> inspector_target_offset: "0";
+    in-out property <string> inspector_base_offset: "0";
+    in-out property <string> inspector_current_val: "No Data";
+    in-out property <[StandardListViewItem]> inspector_results: [];
+
+    // --- Lua State ---
+    in-out property <string> lua_src_dir: "";
+    in-out property <string> lua_out_dir: "";
+    in-out property <string> luadec_path: "luadec_32_deb.exe";
+    in-out property <string> luac_path: "luac4.exe";
+    in-out property <bool> lua_resume: true;
+
+    // --- System / Logs ---
+    in-out property <string> log_text: "System Ready.\n";
+    in-out property <string> status_msg: "Ready.";
+
+    // Callbacks: File Dialogs
     callback browse_file(string) -> string;
     callback browse_folder() -> string;
     callback save_file(string) -> string;
 
+    // Callbacks: PAK (mode removed)
     callback unpack_pak(string, string);
-    callback pack_pak(string, string, string, int, string);
+    callback pack_pak(string, string, string, int);
     callback batch_unpack_pak(string);
-    callback batch_pack_pak(string, string, int, string);
+    callback batch_pack_pak(string, string, int);
     callback archive_item_clicked(int);
 
+    // Callbacks: CFF
     callback unpack_cff(string, string);
     callback pack_cff(string, string, int);
 
+    // Callbacks: Inspector
     callback scan_binary(string, string);
     callback read_value(string, string, string) -> string;
     callback write_value(string, string, string, string);
+    callback inspector_select_row(int);
 
-    in-out property <[StandardListViewItem]> inspector_results: [];
+    // Callbacks: Lua
+    callback decompile_lua(string, string, string, bool);
+    callback check_lua_syntax(string, string);
+    callback format_lua_scripts(string, bool);
 
     VerticalLayout {
         padding: 15px;
-        spacing: 15px;
+        spacing: 12px;
 
+        // Navigation Bar
         HorizontalLayout {
             alignment: center;
-            spacing: 35px;
+            spacing: 28px;
             height: 35px;
 
             Text {
-                text: "PAK TOOL";
-                font-size: 14px;
+                text: "PAK ARCHIVE";
+                font-size: 13px;
                 font-weight: root.active_tab == 0 ? 800 : 500;
                 color: root.active_tab == 0 ? #FFFFFF : #6F6F6F;
                 vertical-alignment: center;
@@ -102,7 +127,7 @@ export component AppWindow inherits Window {
 
             Text {
                 text: "CFF DATABASE";
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: root.active_tab == 1 ? 800 : 500;
                 color: root.active_tab == 1 ? #FFFFFF : #6F6F6F;
                 vertical-alignment: center;
@@ -113,7 +138,7 @@ export component AppWindow inherits Window {
 
             Text {
                 text: "CHUNK INSPECTOR";
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: root.active_tab == 2 ? 800 : 500;
                 color: root.active_tab == 2 ? #FFFFFF : #6F6F6F;
                 vertical-alignment: center;
@@ -123,8 +148,8 @@ export component AppWindow inherits Window {
             }
 
             Text {
-                text: "TERMINAL";
-                font-size: 14px;
+                text: "LUA 4.0 SCRIPTS";
+                font-size: 13px;
                 font-weight: root.active_tab == 3 ? 800 : 500;
                 color: root.active_tab == 3 ? #FFFFFF : #6F6F6F;
                 vertical-alignment: center;
@@ -132,22 +157,36 @@ export component AppWindow inherits Window {
                     clicked => { root.active_tab = 3; }
                 }
             }
+
+            Text {
+                text: "TERMINAL LOG";
+                font-size: 13px;
+                font-weight: root.active_tab == 4 ? 800 : 500;
+                color: root.active_tab == 4 ? #FFFFFF : #6F6F6F;
+                vertical-alignment: center;
+                TouchArea {
+                    clicked => { root.active_tab = 4; }
+                }
+            }
         }
 
+        // Tab Title
         Text {
-            text: root.active_tab == 0 ? "SpellForce Pak Tool" :
-                (root.active_tab == 1 ? "CFF Database Container Tool" :
-                (root.active_tab == 2 ? "Binary Chunk Inspector" : "Progress Terminal"));
-            font-size: 26px;
+            text: root.active_tab == 0 ? "SpellForce PAK Archive Tool" :
+                (root.active_tab == 1 ? "CFF Database & Localization Tool" :
+                (root.active_tab == 2 ? "Binary Chunk Inspector & Patch Editor" :
+                (root.active_tab == 3 ? "Lua 4.0 Decompiler & Diagnostics Suite" : "Real-time Progress Terminal")));
+            font-size: 22px;
             font-weight: 800;
             color: #FFFFFF;
             horizontal-alignment: center;
-            height: 35px;
+            height: 30px;
         }
 
         HorizontalLayout {
             spacing: 20px;
 
+            // Left Controls
             Rectangle {
                 width: 440px;
                 background: #1C1C1C;
@@ -155,9 +194,10 @@ export component AppWindow inherits Window {
                 border-width: 1px;
                 border-radius: 8px;
 
+                // TAB 0: PAK
                 if (root.active_tab == 0): VerticalLayout {
                     spacing: 12px;
-                    padding: 18px;
+                    padding: 16px;
 
                     Text {
                         text: "Unpack Archive";
@@ -167,24 +207,27 @@ export component AppWindow inherits Window {
                     }
 
                     ToolButton {
-                        text: root.selected_pak == "" ? "Open .PAK Archive" : "Selected: " + root.selected_pak;
+                        text: root.selected_pak == "" ? "Select .PAK Archive..." : "PAK: " + root.selected_pak;
                         clicked => { root.selected_pak = root.browse_file("pak"); }
                     }
 
-                    ToolButton {
-                        text: "Extract All";
-                        enabled: root.selected_pak != "";
-                        clicked => {
-                            let out_path = root.browse_folder();
-                            if (out_path != "") { root.unpack_pak(root.selected_pak, out_path); }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        ToolButton {
+                            text: "Extract All";
+                            enabled: root.selected_pak != "";
+                            clicked => {
+                                let out_path = root.browse_folder();
+                                if (out_path != "") { root.unpack_pak(root.selected_pak, out_path); }
+                            }
                         }
-                    }
 
-                    ToolButton {
-                        text: "Batch Unpack All .PAK";
-                        clicked => {
-                            let root_folder = root.browse_folder();
-                            if (root_folder != "") { root.batch_unpack_pak(root_folder); }
+                        ToolButton {
+                            text: "Batch Unpack...";
+                            clicked => {
+                                let root_folder = root.browse_folder();
+                                if (root_folder != "") { root.batch_unpack_pak(root_folder); }
+                            }
                         }
                     }
 
@@ -201,7 +244,7 @@ export component AppWindow inherits Window {
                     }
 
                     ToolButton {
-                        text: root.selected_folder == "" ? "Select Folder" : "Selected Folder: " + root.selected_folder;
+                        text: root.selected_folder == "" ? "Select Directory to Pack..." : "Folder: " + root.selected_folder;
                         clicked => { root.selected_folder = root.browse_folder(); }
                     }
 
@@ -214,24 +257,9 @@ export component AppWindow inherits Window {
                             width: 65px;
                         }
 
-                        pak_fmt := ComboBox {
-                            model: ["SpellForce 2 (.pak)", "SpellForce 1 (.pak)"];
-                            current-value <=> root.persisted_pak_fmt;
-                        }
-                    }
-
-                    if (root.persisted_pak_fmt == "SpellForce 1 (.pak)"): HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: "SF1 Mode:";
-                            color: #AAAAAA;
-                            vertical-alignment: center;
-                            width: 65px;
-                        }
-
                         ComboBox {
-                            model: ["Meta-Template (100% Stable)", "From Scratch"];
-                            current-value <=> root.persisted_sf1_mode;
+                            model: ["SpellForce 1 (.pak)", "SpellForce 2 (.pak)"];
+                            current-value <=> root.persisted_pak_fmt;
                         }
                     }
 
@@ -251,20 +279,23 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    ToolButton {
-                        text: "Pack to .PAK";
-                        enabled: root.selected_folder != "";
-                        clicked => {
-                            let target = root.save_file("pak");
-                            if (target != "") { root.pack_pak(root.selected_folder, target, root.persisted_pak_fmt, root.persisted_pak_comp, root.persisted_sf1_mode); }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        ToolButton {
+                            text: "Pack to .PAK";
+                            enabled: root.selected_folder != "";
+                            clicked => {
+                                let target = root.save_file("pak");
+                                if (target != "") { root.pack_pak(root.selected_folder, target, root.persisted_pak_fmt, root.persisted_pak_comp); }
+                            }
                         }
-                    }
 
-                    ToolButton {
-                        text: "Batch Pack Folders";
-                        clicked => {
-                            let root_folder = root.browse_folder();
-                            if (root_folder != "") { root.batch_pack_pak(root_folder, root.persisted_pak_fmt, root.persisted_pak_comp, root.persisted_sf1_mode); }
+                        ToolButton {
+                            text: "Batch Pack...";
+                            clicked => {
+                                let root_folder = root.browse_folder();
+                                if (root_folder != "") { root.batch_pack_pak(root_folder, root.persisted_pak_fmt, root.persisted_pak_comp); }
+                            }
                         }
                     }
 
@@ -273,19 +304,20 @@ export component AppWindow inherits Window {
                     }
                 }
 
+                // TAB 1: CFF
                 if (root.active_tab == 1): VerticalLayout {
-                    spacing: 14px;
-                    padding: 18px;
+                    spacing: 12px;
+                    padding: 16px;
 
                     Text {
-                        text: "Unpack CFF Container";
+                        text: "Unpack CFF Database";
                         font-size: 14px;
                         font-weight: 700;
                         color: #FFFFFF;
                     }
 
                     ToolButton {
-                        text: root.selected_cff == "" ? "Open .CFF Database" : "Selected: " + root.selected_cff;
+                        text: root.selected_cff == "" ? "Open .CFF Database..." : "CFF: " + root.selected_cff;
                         clicked => { root.selected_cff = root.browse_file("cff"); }
                     }
 
@@ -311,7 +343,7 @@ export component AppWindow inherits Window {
                     }
 
                     ToolButton {
-                        text: root.selected_cff_dir == "" ? "Select Work Directory" : "Selected: " + root.selected_cff_dir;
+                        text: root.selected_cff_dir == "" ? "Select Working Directory..." : "Dir: " + root.selected_cff_dir;
                         clicked => { root.selected_cff_dir = root.browse_folder(); }
                     }
 
@@ -321,7 +353,7 @@ export component AppWindow inherits Window {
                             text: "Zlib Level:";
                             color: #AAAAAA;
                             vertical-alignment: center;
-                            width: 80px;
+                            width: 75px;
                         }
 
                         SpinBox {
@@ -332,7 +364,7 @@ export component AppWindow inherits Window {
                     }
 
                     ToolButton {
-                        text: "Compile & Pack to .CFF";
+                        text: "Import JSONs & Pack to .CFF";
                         enabled: root.selected_cff_dir != "";
                         clicked => {
                             let target = root.save_file("cff");
@@ -345,19 +377,20 @@ export component AppWindow inherits Window {
                     }
                 }
 
+                // TAB 2: CHUNK INSPECTOR
                 if (root.active_tab == 2): VerticalLayout {
-                    spacing: 14px;
-                    padding: 18px;
+                    spacing: 12px;
+                    padding: 16px;
 
                     Text {
-                        text: "Open File";
+                        text: "Binary Chunk Scanner";
                         font-size: 14px;
                         font-weight: 700;
                         color: #FFFFFF;
                     }
 
                     ToolButton {
-                        text: root.selected_dat == "" ? "Open .DAT Chunk File" : "Selected: " + root.selected_dat;
+                        text: root.selected_dat == "" ? "Open .DAT Chunk File..." : "DAT: " + root.selected_dat;
                         clicked => { root.selected_dat = root.browse_file("dat"); }
                     }
 
@@ -367,17 +400,17 @@ export component AppWindow inherits Window {
                             text: "Filter:";
                             color: #AAAAAA;
                             vertical-alignment: center;
-                            width: 60px;
+                            width: 45px;
                         }
 
-                        filter_in := LineEdit {
+                        LineEdit {
                             text <=> root.filter_text;
                             font-family: "Consolas";
                         }
                     }
 
                     ToolButton {
-                        text: "Scan Binary Strings";
+                        text: "Scan Strings (ASCII & ANSI)";
                         enabled: root.selected_dat != "";
                         clicked => { root.scan_binary(root.selected_dat, root.filter_text); }
                     }
@@ -387,17 +420,154 @@ export component AppWindow inherits Window {
                         background: #2C2C2C;
                     }
 
-                    StandardListView {
-                        model: root.inspector_results;
+                    Text {
+                        text: "Scanned Strings (Click to Inspect):";
+                        font-size: 12px;
+                        color: #888888;
+                    }
+
+                    ListView {
                         height: 250px;
+                        for item[index] in root.inspector_results: Rectangle {
+                            height: 24px;
+                            background: ta_scan.has-hover ? #2E2E32 : (Math.mod(index, 2) == 0 ? #191919 : #1C1C1C);
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                Text {
+                                    text: item.text;
+                                    color: #E0E0E0;
+                                    font-family: "Consolas";
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            ta_scan := TouchArea {
+                                clicked => { root.inspector_select_row(index); }
+                            }
+                        }
                     }
                 }
 
+                // TAB 3: LUA SCRIPTS
                 if (root.active_tab == 3): VerticalLayout {
-                    alignment: center;
-                    padding: 18px;
+                    spacing: 12px;
+                    padding: 16px;
+
                     Text {
-                        text: "Terminal logs are displayed in full space on the right.";
+                        text: "Batch Lua 4.0 Decompiler";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: #FFFFFF;
+                    }
+
+                    ToolButton {
+                        text: root.lua_src_dir == "" ? "Select Source Scripts Folder..." : "Src: " + root.lua_src_dir;
+                        clicked => { root.lua_src_dir = root.browse_folder(); }
+                    }
+
+                    ToolButton {
+                        text: root.lua_out_dir == "" ? "Select Destination Folder..." : "Dst: " + root.lua_out_dir;
+                        clicked => { root.lua_out_dir = root.browse_folder(); }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: "LuaDec:";
+                            color: #AAAAAA;
+                            vertical-alignment: center;
+                            width: 60px;
+                        }
+
+                        LineEdit {
+                            text <=> root.luadec_path;
+                            font-family: "Consolas";
+                        }
+
+                        ToolButton {
+                            text: "Browse";
+                            width: 65px;
+                            clicked => {
+                                let f = root.browse_file("exe");
+                                if (f != "") { root.luadec_path = f; }
+                            }
+                        }
+                    }
+
+                    CheckBox {
+                        text: "Resume Existing (Skip already decompiled)";
+                        checked <=> root.lua_resume;
+                    }
+
+                    ToolButton {
+                        text: "Decompile All Bytecode";
+                        enabled: root.lua_src_dir != "" && root.lua_out_dir != "";
+                        clicked => { root.decompile_lua(root.lua_src_dir, root.lua_out_dir, root.luadec_path, root.lua_resume); }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: #2C2C2C;
+                    }
+
+                    Text {
+                        text: "Syntax & Formatting Toolkit";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: #FFFFFF;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: "Luac4:";
+                            color: #AAAAAA;
+                            vertical-alignment: center;
+                            width: 60px;
+                        }
+
+                        LineEdit {
+                            text <=> root.luac_path;
+                            font-family: "Consolas";
+                        }
+
+                        ToolButton {
+                            text: "Browse";
+                            width: 65px;
+                            clicked => {
+                                let f = root.browse_file("exe");
+                                if (f != "") { root.luac_path = f; }
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        ToolButton {
+                            text: "Check Syntax (luac4 -p)";
+                            enabled: root.lua_src_dir != "";
+                            clicked => { root.check_lua_syntax(root.lua_src_dir, root.luac_path); }
+                        }
+
+                        ToolButton {
+                            text: "Beautify Code (Tabs)";
+                            enabled: root.lua_src_dir != "";
+                            clicked => { root.format_lua_scripts(root.lua_src_dir, true); }
+                        }
+                    }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                    }
+                }
+
+                // TAB 4: TERMINAL
+                if (root.active_tab == 4): VerticalLayout {
+                    alignment: center;
+                    padding: 20px;
+                    Text {
+                        text: "Progress logs are displayed in full resolution on the right pane.";
                         color: #666666;
                         horizontal-alignment: center;
                         wrap: word-wrap;
@@ -405,6 +575,7 @@ export component AppWindow inherits Window {
                 }
             }
 
+            // Right Panel
             Rectangle {
                 background: #1C1C1C;
                 border-color: #2C2C2C;
@@ -429,20 +600,18 @@ export component AppWindow inherits Window {
                             }
 
                             ta := TouchArea {
-                                clicked => {
-                                    root.archive_item_clicked(index);
-                                }
+                                clicked => { root.archive_item_clicked(index); }
                             }
                         }
                     }
                 }
 
                 if (root.active_tab == 2): VerticalLayout {
-                    padding: 20px;
+                    padding: 18px;
                     spacing: 12px;
 
                     Text {
-                        text: "Value Modifier & Hex Inspector";
+                        text: "Value Modifier & Offset Calculator";
                         font-size: 15px;
                         font-weight: 700;
                         color: #FFFFFF;
@@ -450,13 +619,70 @@ export component AppWindow inherits Window {
 
                     HorizontalLayout {
                         Text {
+                            text: "Base String Offset:";
+                            color: #AAAAAA;
+                            width: 130px;
+                            vertical-alignment: center;
+                        }
+
+                        LineEdit {
+                            text <=> root.inspector_base_offset;
+                            read-only: true;
+                            font-family: "Consolas";
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Text {
+                            text: "Quick Shift:";
+                            color: #AAAAAA;
+                            width: 130px;
+                            vertical-alignment: center;
+                        }
+
+                        ToolButton {
+                            text: "-32";
+                            width: 45px;
+                            clicked => { offset_in.text = (root.inspector_base_offset.to-float() - 32) + ""; }
+                        }
+
+                        ToolButton {
+                            text: "-24";
+                            width: 45px;
+                            clicked => { offset_in.text = (root.inspector_base_offset.to-float() - 24) + ""; }
+                        }
+
+                        ToolButton {
+                            text: "-16";
+                            width: 45px;
+                            clicked => { offset_in.text = (root.inspector_base_offset.to-float() - 16) + ""; }
+                        }
+
+                        ToolButton {
+                            text: "0";
+                            width: 45px;
+                            clicked => { offset_in.text = root.inspector_base_offset; }
+                        }
+
+                        ToolButton {
+                            text: "+16";
+                            width: 45px;
+                            clicked => { offset_in.text = (root.inspector_base_offset.to-float() + 16) + ""; }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        Text {
                             text: "Target Offset:";
                             color: #AAAAAA;
-                            width: 120px;
+                            width: 130px;
+                            vertical-alignment: center;
                         }
 
                         offset_in := LineEdit {
-                            text: "0";
+                            text <=> root.inspector_target_offset;
+                            font-family: "Consolas";
                         }
                     }
 
@@ -464,7 +690,8 @@ export component AppWindow inherits Window {
                         Text {
                             text: "Data Type:";
                             color: #AAAAAA;
-                            width: 120px;
+                            width: 130px;
+                            vertical-alignment: center;
                         }
 
                         type_in := ComboBox {
@@ -474,7 +701,7 @@ export component AppWindow inherits Window {
                     }
 
                     ToolButton {
-                        text: "Read Value";
+                        text: "Read Value from File";
                         enabled: root.selected_dat != "";
                         clicked => { current_val.text = root.read_value(root.selected_dat, offset_in.text, type_in.current-value); }
                     }
@@ -483,11 +710,14 @@ export component AppWindow inherits Window {
                         Text {
                             text: "Current Value:";
                             color: #AAAAAA;
-                            width: 120px;
+                            width: 130px;
+                            vertical-alignment: center;
                         }
 
                         current_val := LineEdit {
+                            text <=> root.inspector_current_val;
                             read-only: true;
+                            font-family: "Consolas";
                         }
                     }
 
@@ -495,18 +725,21 @@ export component AppWindow inherits Window {
                         Text {
                             text: "New Value:";
                             color: #AAAAAA;
-                            width: 120px;
+                            width: 130px;
+                            vertical-alignment: center;
                         }
 
-                        new_val := LineEdit { }
+                        new_val := LineEdit {
+                            font-family: "Consolas";
+                        }
                     }
 
                     ToolButton {
-                        text: "Write to Binary File";
+                        text: "Write Value to Binary File";
                         enabled: root.selected_dat != "";
                         clicked => {
                             root.write_value(root.selected_dat, offset_in.text, type_in.current-value, new_val.text);
-                            root.scan_binary(root.selected_dat, root.filter_text);
+                            current_val.text = root.read_value(root.selected_dat, offset_in.text, type_in.current-value);
                         }
                     }
 
@@ -516,6 +749,33 @@ export component AppWindow inherits Window {
                 }
 
                 if (root.active_tab == 3): VerticalLayout {
+                    padding: 20px;
+                    spacing: 12px;
+
+                    Text {
+                        text: "SpellForce Lua 4.0 Architecture";
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: #FFFFFF;
+                    }
+
+                    Text {
+                        text: "SpellForce 1 uses a customized Lua 4.0.1 runtime with proprietary opcodes and K&R function syntax.\n\n" +
+                            "• Decompiler: Runs multi-threaded 'luadec' on bytecode files while passing plain-text scripts as-is.\n" +
+                            "• Syntax Diagnostics: Runs 'luac4 -p' concurrently over all scripts to pinpoint broken syntax.\n" +
+                            "• Pretty-Printer: Normalizes syntactic sugar (e.g. 'Name = function' -> 'function Name') and collapses tables.\n\n" +
+                            "All background tasks output detailed diagnostic reports directly into the Progress Terminal.";
+                        color: #AAAAAA;
+                        font-size: 13px;
+                        wrap: word-wrap;
+                    }
+
+                    Rectangle {
+                        vertical-stretch: 1;
+                    }
+                }
+
+                if (root.active_tab == 4): VerticalLayout {
                     padding: 10px;
                     TextEdit {
                         text <=> root.log_text;
@@ -527,6 +787,7 @@ export component AppWindow inherits Window {
             }
         }
 
+        // Bottom Status Bar
         Rectangle {
             height: 30px;
             background: #1C1C1C;
