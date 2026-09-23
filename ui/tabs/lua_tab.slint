@@ -1,6 +1,14 @@
 // ui/tabs/lua_tab.slint
 
-import { LineEdit, CheckBox, ScrollView } from "std-widgets.slint";
+import {
+    LineEdit,
+    CheckBox,
+    ScrollView,
+    ComboBox,
+    ListView,
+    StandardListView,
+    TextEdit,
+} from "std-widgets.slint";
 import { CustomButton } from "../components/buttons.slint";
 import {
     SectionTitle,
@@ -9,22 +17,130 @@ import {
 } from "../components/common.slint";
 
 export component LuaTab inherits HorizontalLayout {
-    in-out property <length> sidebar_width: 420px;
+    in-out property <length> sidebar_width: 380px;
 
+    // Engine Mode: "SpellForce 1 (Lua 4.0)" vs "SpellForce 2 (Lua 5.0 GDS)"
+    in-out property <string> lua_engine_mode: "SpellForce 1 (Lua 4.0)";
+
+    // SF1 Bytecode Properties
     in-out property <string> lua_src_dir: "";
     in-out property <string> lua_out_dir: "";
     in-out property <string> luadec_path: "luadec_32_deb.exe";
     in-out property <string> luac_path: "luac4.exe";
     in-out property <bool> lua_resume: true;
 
+    // SF2 API Browser Properties
+    in-out property <string> api_filter: "";
+    in-out property <string> api_category: "All Categories";
+    in-out property <[StandardListViewItem]> api_list: [];
+    in-out property <int> api_selected_idx: 0;
+    in-out property <string> selected_fn_name: "";
+    in-out property <string> selected_fn_snippet: "";
+    in-out property <string> selected_fn_desc: "";
+
+    // SF2 Scaffolding Wizard Input State
+    in-out property <string> new_proj_name: "MyMapMod";
+    in-out property <string> new_map_name: "P701_Dun_Mora";
+
+    // Callbacks: File Dialogs
     callback browse_folder() -> string;
     callback browse_file(string) -> string;
+    callback save_file(string) -> string;
+
+    // Callbacks: SF1 Core
     callback decompile_lua(string, string, string, bool);
     callback check_lua_syntax(string, string);
     callback format_lua_scripts(string, bool);
 
+    // Callbacks: SF2 Core (Именно они отсутствовали)
+    callback check_lua_syntax_sf2(string, string);
+    callback format_lua_stylua(string, string, bool);
+    callback search_api_query(string, string);
+    callback select_api_entry(int);
+    callback copy_snippet_to_clipboard(string);
+    callback create_map_project(string, string, string);
+    callback export_emmylua_defs(string);
+
     spacing: 0px;
 
+    // MODAL POPUP: SF2 MAP PROJECT SCAFFOLDING
+    proj_popup := PopupWindow {
+        width: 400px;
+        height: 230px;
+        close-policy: close-on-click-outside;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        Rectangle {
+            background: #232529;
+            border-color: #8a5cf6;
+            border-width: 1.5px;
+            border-radius: 6px;
+
+            VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+
+                Text {
+                    text: "Create SpellForce 2 Map Project Scaffold";
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: #ffffff;
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: #353535;
+                }
+
+                FormRow {
+                    title: "Project Name:";
+                    label-width: 100px;
+                    LineEdit {
+                        text <=> root.new_proj_name;
+                        font-family: "Consolas";
+                        height: 28px;
+                    }
+                }
+
+                FormRow {
+                    title: "Map Name:";
+                    label-width: 100px;
+                    LineEdit {
+                        text <=> root.new_map_name;
+                        placeholder-text: "e.g. P701_Dun_Mora";
+                        font-family: "Consolas";
+                        height: 28px;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+
+                    CustomButton {
+                        text: "Cancel";
+                        primary-color: #4e5058;
+                        clicked => { proj_popup.close(); }
+                    }
+
+                    CustomButton {
+                        text: "Generate Scaffold";
+                        primary-color: #23a55a;
+                        clicked => {
+                            let dest = root.browse_folder();
+                            if (dest != "") {
+                                root.create_map_project(dest, root.new_proj_name, root.new_map_name);
+                                proj_popup.close();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // LEFT PANEL: ENGINE SELECTOR & TOOLS
     Rectangle {
         width: root.sidebar_width;
         background: #2b2d31;
@@ -39,83 +155,159 @@ export component LuaTab inherits HorizontalLayout {
                 alignment: start;
 
                 PanelSection {
-                    title: "Batch Decompiler (Lua 4.0 Bytecode)";
+                    title: "Engine Target Selection";
+                    title-color: #8a5cf6;
                     VerticalLayout {
                         spacing: 6px;
                         FormRow {
-                            title: "Source:";
-                            HorizontalLayout {
-                                spacing: 4px;
-                                LineEdit {
-                                    text <=> root.lua_src_dir;
-                                    height: 28px;
-                                    font-family: "Consolas";
-                                    font-size: 11px;
-                                }
-
-                                CustomButton {
-                                    text: "...";
-                                    compact: true;
-                                    width: 30px;
-                                    height: 28px;
-                                    clicked => { root.lua_src_dir = root.browse_folder(); }
-                                }
+                            title: "Lua Engine:";
+                            label-width: 85px;
+                            ComboBox {
+                                model: ["SpellForce 1 (Lua 4.0)", "SpellForce 2 (Lua 5.0 GDS)"];
+                                current-value <=> root.lua_engine_mode;
+                                height: 28px;
                             }
-                        }
-
-                        FormRow {
-                            title: "Dest:";
-                            HorizontalLayout {
-                                spacing: 4px;
-                                LineEdit {
-                                    text <=> root.lua_out_dir;
-                                    height: 28px;
-                                    font-family: "Consolas";
-                                    font-size: 11px;
-                                }
-
-                                CustomButton {
-                                    text: "...";
-                                    compact: true;
-                                    width: 30px;
-                                    height: 28px;
-                                    clicked => { root.lua_out_dir = root.browse_folder(); }
-                                }
-                            }
-                        }
-
-                        CheckBox {
-                            text: "Resume Existing (Skip decompiled)";
-                            checked <=> root.lua_resume;
-                        }
-
-                        CustomButton {
-                            text: "Decompile All Scripts";
-                            enabled: root.lua_src_dir != "" && root.lua_out_dir != "";
-                            primary-color: #23a55a;
-                            clicked => { root.decompile_lua(root.lua_src_dir, root.lua_out_dir, root.luadec_path, root.lua_resume); }
                         }
                     }
                 }
 
-                PanelSection {
-                    title: "Syntax & Formatting Tools";
-                    VerticalLayout {
-                        spacing: 6px;
-                        HorizontalLayout {
+                // ==========================================
+                // VIEW A: SPELLFORCE 1 (LUA 4.0) TOOLS
+                // ==========================================
+                if root.lua_engine_mode == "SpellForce 1 (Lua 4.0)": VerticalLayout {
+                    spacing: 12px;
+
+                    PanelSection {
+                        title: "Batch Decompiler (Lua 4.0 Bytecode)";
+                        VerticalLayout {
                             spacing: 6px;
-                            CustomButton {
-                                text: "Check Syntax (luac4 -p)";
-                                enabled: root.lua_src_dir != "";
-                                primary-color: #4e5058;
-                                clicked => { root.check_lua_syntax(root.lua_src_dir, root.luac_path); }
+                            FormRow {
+                                title: "Source:";
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    LineEdit {
+                                        text <=> root.lua_src_dir;
+                                        height: 28px;
+                                        font-family: "Consolas";
+                                        font-size: 11px;
+                                    }
+
+                                    CustomButton {
+                                        text: "...";
+                                        compact: true;
+                                        width: 30px;
+                                        height: 28px;
+                                        clicked => { root.lua_src_dir = root.browse_folder(); }
+                                    }
+                                }
+                            }
+
+                            FormRow {
+                                title: "Dest:";
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    LineEdit {
+                                        text <=> root.lua_out_dir;
+                                        height: 28px;
+                                        font-family: "Consolas";
+                                        font-size: 11px;
+                                    }
+
+                                    CustomButton {
+                                        text: "...";
+                                        compact: true;
+                                        width: 30px;
+                                        height: 28px;
+                                        clicked => { root.lua_out_dir = root.browse_folder(); }
+                                    }
+                                }
+                            }
+
+                            CheckBox {
+                                text: "Resume Existing (Skip decompiled)";
+                                checked <=> root.lua_resume;
                             }
 
                             CustomButton {
-                                text: "Beautify Source (Tabs)";
-                                enabled: root.lua_src_dir != "";
-                                primary-color: #3e6a90;
-                                clicked => { root.format_lua_scripts(root.lua_src_dir, true); }
+                                text: "Decompile All Scripts";
+                                enabled: root.lua_src_dir != "" && root.lua_out_dir != "";
+                                primary-color: #23a55a;
+                                clicked => { root.decompile_lua(root.lua_src_dir, root.lua_out_dir, root.luadec_path, root.lua_resume); }
+                            }
+                        }
+                    }
+
+                    PanelSection {
+                        title: "Syntax & Formatting Tools";
+                        VerticalLayout {
+                            spacing: 6px;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                CustomButton {
+                                    text: "Check Syntax";
+                                    enabled: root.lua_src_dir != "";
+                                    primary-color: #4e5058;
+                                    clicked => { root.check_lua_syntax(root.lua_src_dir, root.luac_path); }
+                                }
+
+                                CustomButton {
+                                    text: "Beautify Tabs";
+                                    enabled: root.lua_src_dir != "";
+                                    primary-color: #3e6a90;
+                                    clicked => { root.format_lua_scripts(root.lua_src_dir, true); }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ==========================================
+                // VIEW B: SPELLFORCE 2 (LUA 5.0 GDS) TOOLS
+                // ==========================================
+                if root.lua_engine_mode == "SpellForce 2 (Lua 5.0 GDS)": VerticalLayout {
+                    spacing: 12px;
+
+                    PanelSection {
+                        title: "Map Scaffolding & Tools";
+                        title-color: #8a5cf6;
+                        VerticalLayout {
+                            spacing: 6px;
+                            CustomButton {
+                                text: "🗺️ Generate New Map Project...";
+                                primary-color: #8a5cf6;
+                                clicked => { proj_popup.show(); }
+                            }
+
+                            CustomButton {
+                                text: "📦 Export EmmyLua (VS Code Hints)...";
+                                primary-color: #4e5058;
+                                clicked => {
+                                    let target = root.save_file("lua");
+                                    if (target != "") { root.export_emmylua_defs(target); }
+                                }
+                            }
+                        }
+                    }
+
+                    PanelSection {
+                        title: "SF2 Syntax & StyLua Tools";
+                        VerticalLayout {
+                            spacing: 6px;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                CustomButton {
+                                    text: "Check (luac5.1)";
+                                    enabled: root.lua_src_dir != "";
+                                    primary-color: #4e5058;
+                                    clicked => { root.check_lua_syntax_sf2(root.lua_src_dir, "bin/luac5.1.exe"); }
+                                }
+
+                                CustomButton {
+                                    text: "Format (StyLua 5.1)";
+                                    enabled: root.lua_src_dir != "";
+                                    primary-color: #3e6a90;
+                                    clicked => { root.format_lua_stylua(root.lua_src_dir, "bin/stylua.exe", true); }
+                                }
                             }
                         }
                     }
@@ -124,10 +316,10 @@ export component LuaTab inherits HorizontalLayout {
         }
     }
 
+    // RESIZE SPLITTER
     Rectangle {
         width: 8px;
         background: splitter-ta.has-hover ? #474747 : #181818;
-
         Rectangle {
             width: 2px;
             height: 24px;
@@ -141,12 +333,13 @@ export component LuaTab inherits HorizontalLayout {
             mouse-cursor: col-resize;
             moved => {
                 if self.pressed {
-                    root.sidebar_width = (root.sidebar_width + self.mouse-x - self.pressed-x).clamp(340px, 680px);
+                    root.sidebar_width = (root.sidebar_width + self.mouse-x - self.pressed-x).clamp(320px, 520px);
                 }
             }
         }
     }
 
+    // RIGHT PANEL
     Rectangle {
         horizontal-stretch: 1;
         background: #2b2d31;
@@ -155,27 +348,170 @@ export component LuaTab inherits HorizontalLayout {
         border-radius: 4px;
         clip: true;
 
-        VerticalLayout {
+        // ==========================================
+        // SF1 VIEW: LUA 4.0 SUBSYSTEM OVERVIEW
+        // ==========================================
+        if root.lua_engine_mode == "SpellForce 1 (Lua 4.0)": VerticalLayout {
             padding: 16px;
             spacing: 12px;
 
             SectionTitle {
-                text: "SpellForce Lua 4.0 Subsystem Overview";
+                text: "SpellForce 1 (Lua 4.0.1) Engine & Scripting Architecture";
+                text-color: #3e6a90;
             }
 
             Text {
-                text: "SpellForce 1 utilizes a customized, proprietary Lua 4.0.1 engine with custom opcodes.\n\n" +
-                    "• High-Performance Rayon Worker: Concurrently extracts and decompiles bytecode chunks.\n" +
-                    "• Multi-Threaded Validator: Executes 'luac4 -p' syntax sweeps across hundreds of campaign scripts.\n" +
-                    "• Code Formatter: Normalizes syntax and indentation to match original Phenomic source code.\n\n" +
-                    "View detailed progress and diagnostic reports directly in the Terminal Log tab.";
-                color: #949ba4;
+                text: "SpellForce 1 uses a customized, proprietary Lua 4.0.1 virtual machine modified by Phenomic in 2002-2003.\n\n" +
+                    "• Header Signature: Bytecode starts with '\\x1bLua' followed by byte 0x40.\n" +
+                    "• Custom VM Opcodes: Phenomic added customized instruction sets for direct entity manipulation.\n" +
+                    "• Parallel Decompiler: Multi-threaded batch extraction using 'luadec_32_deb.exe'.\n" +
+                    "• Syntax Validation: Verifies syntax compatibility using 'luac4 -p'.\n" +
+                    "• Formatter: Normalizes sugar syntax and formats tab indentation matching original sources.\n\n" +
+                    "Switch the Engine Mode dropdown to 'SpellForce 2 (Lua 5.0 GDS)' to access the SF2 560+ function API explorer.";
+                color: #dcddde;
                 font-size: 12px;
                 wrap: word-wrap;
             }
 
             Rectangle {
                 vertical-stretch: 1;
+            }
+        }
+
+        // ==========================================
+        // SF2 VIEW: GDS API & SNIPPET EXPLORER
+        // ==========================================
+        if root.lua_engine_mode == "SpellForce 2 (Lua 5.0 GDS)": VerticalLayout {
+            padding: 14px;
+            spacing: 10px;
+
+            // TOP SEARCH & FILTER BAR
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                LineEdit {
+                    text <=> root.api_filter;
+                    placeholder-text: "🔍 Search SF2 GDS API functions & snippets (e.g. Figure, Gate, Quest, Spawn)...";
+                    font-family: "Consolas";
+                    font-size: 11px;
+                    height: 30px;
+                    horizontal-stretch: 1;
+                    edited => { root.search_api_query(root.api_filter, root.api_category); }
+                }
+
+                ComboBox {
+                    model: [
+                        "All Categories",
+                        "Snippets",
+                        "Events",
+                        "Figures",
+                        "Quests",
+                        "Dialogs",
+                        "World",
+                        "AI",
+                        "Conditions"
+                    ];
+                    current-value <=> root.api_category;
+                    width: 160px;
+                    height: 30px;
+                    selected(cat) => { root.search_api_query(root.api_filter, cat); }
+                }
+            }
+
+            // DUAL-VIEWPORT: LIST (LEFT) AND INSPECTOR (RIGHT)
+            HorizontalLayout {
+                spacing: 10px;
+                vertical-stretch: 1;
+
+                // 1. Functions List
+                Rectangle {
+                    width: 230px;
+                    background: #111214;
+                    border-color: #1f2023;
+                    border-width: 1px;
+                    border-radius: 4px;
+                    clip: true;
+
+                    ListView {
+                        for item[index] in root.api_list: Rectangle {
+                            height: 26px;
+                            background: ta_api.has-hover ? #393c41 : (root.api_selected_idx == index ? #3e6a90 : (Math.mod(index, 2) == 0 ? #18191b : #141517));
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                Text {
+                                    text: item.text;
+                                    color: root.api_selected_idx == index ? #ffffff : #dcddde;
+                                    font-family: "Consolas";
+                                    font-size: 11px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                            }
+
+                            ta_api := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.api_selected_idx = index;
+                                    root.select_api_entry(index);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. Snippet Preview & Copy Inspector
+                Rectangle {
+                    horizontal-stretch: 1;
+                    background: #18191b;
+                    border-color: #353535;
+                    border-width: 1px;
+                    border-radius: 4px;
+
+                    VerticalLayout {
+                        padding: 10px;
+                        spacing: 8px;
+
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text {
+                                text: root.selected_fn_name != "" ? root.selected_fn_name : "Select an API function or snippet";
+                                font-size: 13px;
+                                font-weight: 700;
+                                color: #f0b132;
+                                vertical-alignment: center;
+                            }
+
+                            CustomButton {
+                                text: "📋 Copy Snippet";
+                                primary-color: #23a55a;
+                                enabled: root.selected_fn_snippet != "";
+                                height: 26px;
+                                clicked => { root.copy_snippet_to_clipboard(root.selected_fn_snippet); }
+                            }
+                        }
+
+                        Text {
+                            text: root.selected_fn_desc;
+                            color: #949ba4;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: #2b2d31;
+                        }
+
+                        TextEdit {
+                            text <=> root.selected_fn_snippet;
+                            font-family: "Consolas";
+                            font-size: 11px;
+                            vertical-stretch: 1;
+                        }
+                    }
+                }
             }
         }
     }

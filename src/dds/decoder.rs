@@ -1,9 +1,6 @@
-// src/dds.rs
-
 use anyhow::{Context, Result, anyhow};
 use image::DynamicImage;
 use rayon::prelude::*;
-use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 use std::borrow::Cow;
 use std::io::Cursor;
 
@@ -36,10 +33,10 @@ struct AnalyzedHeaderInfo {
     is_compressed: bool,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum MipSelectionStrategy {
     Auto(Option<u32>),
+    #[allow(dead_code)]
     Specific(u32),
 }
 
@@ -444,17 +441,6 @@ fn decode_dds_internal(dds_bytes: &[u8], strategy: MipSelectionStrategy) -> Resu
 
 pub fn decode_dds_bytes(dds_bytes: &[u8], target_size: Option<u32>) -> Result<DynamicImage> {
     decode_dds_internal(dds_bytes, MipSelectionStrategy::Auto(target_size))
-}
-
-// -----------------------------------------------------------------------------
-// SLINT IMAGE CONVERSION BRIDGE
-// -----------------------------------------------------------------------------
-
-pub fn rgba_to_slint(rgba: image::RgbaImage) -> Image {
-    let (width, height) = rgba.dimensions();
-    let mut pixel_buffer = SharedPixelBuffer::<Rgba8Pixel>::new(width, height);
-    pixel_buffer.make_mut_bytes().copy_from_slice(rgba.as_raw());
-    Image::from_rgba8(pixel_buffer)
 }
 
 pub fn decode_dds_to_rgba(dds_bytes: &[u8], target_size: Option<u32>) -> Result<image::RgbaImage> {

@@ -1,8 +1,8 @@
 use crate::UiLogger;
 use rayon::prelude::*;
 use regex::Regex;
-use std::fs::{self, File};
-use std::io::{self, Read};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,16 +13,6 @@ use std::os::windows::process::CommandExt;
 
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-pub fn is_compiled_lua(file_path: &Path) -> bool {
-    if let Ok(mut f) = File::open(file_path) {
-        let mut header = [0u8; 4];
-        if f.read_exact(&mut header).is_ok() {
-            return header.starts_with(b"\x1bLua");
-        }
-    }
-    false
-}
 
 fn extract_error_summary(stdout_text: &str) -> String {
     let lines: Vec<&str> = stdout_text
@@ -72,7 +62,7 @@ pub fn decompile_single_file(
         return (rel_path, "SKIPPED".into(), String::new());
     }
 
-    if !is_compiled_lua(src_file) {
+    if !super::is_compiled_lua(src_file) {
         return match fs::copy(src_file, &dst_file) {
             Ok(_) => (rel_path, "COPIED_TEXT".into(), String::new()),
             Err(e) => (rel_path, "EXCEPTION".into(), format!("Copy Error: {}", e)),
@@ -178,10 +168,6 @@ pub fn batch_decompile(
     Ok(())
 }
 
-// -----------------------------------------------------------------------------
-// SYNTAX CHECKER (luac4 -p)
-// -----------------------------------------------------------------------------
-
 pub fn check_file_syntax(file_path: &Path, luac_exe: &Path) -> (bool, String) {
     let mut cmd = Command::new(luac_exe);
     cmd.arg("-p").arg(file_path);
@@ -253,21 +239,14 @@ pub fn batch_check_syntax(
     Ok(())
 }
 
-// -----------------------------------------------------------------------------
-// LUA 4.0 FORMATTER & PRETTY-PRINTER
-// -----------------------------------------------------------------------------
-
 pub fn format_lua_source(source_text: &str, indent_unit: &str) -> String {
-    // 1. Normalize syntactic sugar: Name = function(...) -> function Name(...)
     let re_sugar =
         Regex::new(r"(?m)^([ \t]*)([a-zA-Z_][a-zA-Z0-9_.:]*)\s*=\s*function\s*\(").unwrap();
     let normalized = re_sugar.replace_all(source_text, "${1}function ${2}(");
 
-    // 2. Collapse empty tables: {\s*\n\s*} -> {}
     let re_tables = Regex::new(r"\{\s*\n\s*\}").unwrap();
     let collapsed = re_tables.replace_all(&normalized, "{}");
 
-    // Tokenizer Regex matching original SpellForce scripts
     let token_regex = Regex::new(
         r#"(?x)
         (?P<COMMENT_MULTI>--\[\[[\s\S]*?\]\])
@@ -418,7 +397,7 @@ fn render_line_tokens(tokens: &[(String, String)]) -> String {
         if matches!(val.as_str(), "," | ";" | ")" | "]" | "}")
             || matches!(prev_val, "(" | "[" | "{")
         {
-            // No spacing needed
+            // No spacing required
         } else if is_spaced_op
             || prev_is_spaced_op
             || matches!(prev_val, "," | ";")

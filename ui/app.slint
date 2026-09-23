@@ -68,11 +68,18 @@ export component AppWindow inherits Window {
     in-out property <bool> can_redo: false;
 
     // --- Lua State ---
+    in-out property <string> lua_engine_mode: "SpellForce 1 (Lua 4.0)";
     in-out property <string> lua_src_dir: "";
     in-out property <string> lua_out_dir: "";
     in-out property <string> luadec_path: "luadec_32_deb.exe";
     in-out property <string> luac_path: "luac4.exe";
     in-out property <bool> lua_resume: true;
+
+    // --- Lua SF2 API Explorer State ---
+    in-out property <[StandardListViewItem]> api_list: [];
+    in-out property <string> selected_fn_name: "";
+    in-out property <string> selected_fn_snippet: "";
+    in-out property <string> selected_fn_desc: "";
 
     // --- System / Logs ---
     in-out property <string> log_text: "System Ready.\n";
@@ -109,16 +116,25 @@ export component AppWindow inherits Window {
     callback import_language_to_slot(string, string, string);
     callback execute_clone_language(string, int, int, string, string);
 
-    // Callbacks: Lua
+    // Callbacks: Lua Core (SF1)
     callback decompile_lua(string, string, string, bool);
     callback check_lua_syntax(string, string);
     callback format_lua_scripts(string, bool);
+
+    // Callbacks: Lua Core (SF2)
+    callback check_lua_syntax_sf2(string, string);
+    callback format_lua_stylua(string, string, bool);
+    callback search_api_query(string, string);
+    callback select_api_entry(int);
+    callback copy_snippet_to_clipboard(string);
+    callback create_map_project(string, string, string);
+    callback export_emmylua_defs(string);
 
     VerticalLayout {
         padding: 12px;
         spacing: 10px;
 
-        // TOP NAVIGATION TABS (5 Clean Modular Tabs)
+        // TOP NAVIGATION TABS
         HorizontalLayout {
             spacing: 6px;
             alignment: start;
@@ -146,7 +162,7 @@ export component AppWindow inherits Window {
             }
 
             TabButton {
-                text: "Lua 4.0 Scripts";
+                text: "Lua Scripts";
                 active: root.active_tab == 3;
                 accent-color: #8a5cf6;
                 clicked => { root.active_tab = 3; }
@@ -242,17 +258,32 @@ export component AppWindow inherits Window {
 
             if root.active_tab == 3: LuaTab {
                 sidebar_width <=> root.sidebar_width;
+                lua_engine_mode <=> root.lua_engine_mode;
                 lua_src_dir <=> root.lua_src_dir;
                 lua_out_dir <=> root.lua_out_dir;
                 luadec_path <=> root.luadec_path;
                 luac_path <=> root.luac_path;
                 lua_resume <=> root.lua_resume;
 
+                api_list: root.api_list;
+                selected_fn_name <=> root.selected_fn_name;
+                selected_fn_snippet <=> root.selected_fn_snippet;
+                selected_fn_desc <=> root.selected_fn_desc;
+
                 browse_folder => { root.browse_folder() }
                 browse_file(ext) => { root.browse_file(ext) }
+                save_file(ext) => { root.save_file(ext) }
                 decompile_lua(s, d, exe, res) => { root.decompile_lua(s, d, exe, res) }
                 check_lua_syntax(s, exe) => { root.check_lua_syntax(s, exe) }
                 format_lua_scripts(s, tabs) => { root.format_lua_scripts(s, tabs) }
+
+                check_lua_syntax_sf2(s, exe) => { root.check_lua_syntax_sf2(s, exe) }
+                format_lua_stylua(s, exe, tabs) => { root.format_lua_stylua(s, exe, tabs) }
+                search_api_query(q, c) => { root.search_api_query(q, c) }
+                select_api_entry(idx) => { root.select_api_entry(idx) }
+                copy_snippet_to_clipboard(s) => { root.copy_snippet_to_clipboard(s) }
+                create_map_project(dest, p, m) => { root.create_map_project(dest, p, m) }
+                export_emmylua_defs(dest) => { root.export_emmylua_defs(dest) }
             }
 
             if root.active_tab == 4: LogTab {

@@ -4,6 +4,7 @@ mod cff;
 mod dds;
 mod lua;
 mod pak;
+mod tools;
 
 use slint::{Image, ModelRc, SharedString, StandardListViewItem, VecModel};
 use std::collections::VecDeque;
@@ -71,15 +72,27 @@ CFF Database Commands:
   replace_slot <cff_dir> <target_slot: 0-5> <translation.json>
       Replace all phrases of a language slot with texts from a JSON file.
 
-Lua 4.0 Scripting Commands:
+Lua Scripting Commands:
   decompile_lua <src_dir> <out_dir> [luadec_exe] [--no-resume]
-      High-performance parallel Lua 4.0 bytecode decompiler.
+      High-performance parallel Lua 4.0 bytecode decompiler (SF1).
 
   check_lua <scripts_dir> [luac_exe]
-      Parallel syntax validation using 'luac4 -p'.
+      Parallel syntax validation using 'luac -p' (defaults to luac4.exe).
+
+  check_lua5 <scripts_dir> [luac5_exe]
+      Parallel syntax validation using 'luac5.1 -p' (SF2).
 
   format_lua <scripts_dir> [--spaces <n>]
       Beautify and indent Lua 4.0 scripts to match original Phenomic source.
+
+  format_stylua <scripts_dir> [stylua_exe] [--spaces]
+      Batch format SpellForce 2 Lua 5.1 scripts using StyLua.
+
+  create_map <target_dir> <project_name> <map_name>
+      Generate standard SpellForce 2 map scaffolding (scripts, dialogs).
+
+  export_emmylua <out_file.lua>
+      Export complete SpellForce 2 Lua API definitions for VS Code (EmmyLua).
 
 General:
   help, --help, -h
@@ -220,10 +233,10 @@ fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             let luadec = args
                 .get(4)
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("luadec_32_deb.exe"));
+                .unwrap_or_else(|| tools::find_tool("luadec_32_deb.exe"));
             let resume = !args.iter().any(|a| a == "--no-resume");
             let (logger, handle) = make_cli_logger();
-            lua::batch_decompile(
+            lua::sf1::batch_decompile(
                 Path::new(&args[2]),
                 Path::new(&args[3]),
                 &luadec,
@@ -241,9 +254,23 @@ fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             let luac = args
                 .get(3)
                 .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("luac4.exe"));
+                .unwrap_or_else(|| tools::find_tool("luac4.exe"));
             let (logger, handle) = make_cli_logger();
-            lua::batch_check_syntax(Path::new(&args[2]), &luac, &logger)?;
+            lua::sf1::batch_check_syntax(Path::new(&args[2]), &luac, &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+        "check_lua5" => {
+            if args.len() < 3 {
+                eprintln!("Usage: SFTool check_lua5 <scripts_dir> [luac5_exe]");
+                return Ok(());
+            }
+            let luac = args
+                .get(3)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| tools::find_tool("luac5.1.exe"));
+            let (logger, handle) = make_cli_logger();
+            let _ = lua::sf2::batch_check_syntax_sf2(Path::new(&args[2]), &luac, &logger)?;
             drop(logger);
             let _ = handle.join();
         }
@@ -262,9 +289,47 @@ fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 "\t".to_string()
             };
             let (logger, handle) = make_cli_logger();
-            lua::batch_format(Path::new(&args[2]), &unit, &logger)?;
+            lua::sf1::batch_format(Path::new(&args[2]), &unit, &logger)?;
             drop(logger);
             let _ = handle.join();
+        }
+        "format_stylua" => {
+            if args.len() < 3 {
+                eprintln!("Usage: SFTool format_stylua <scripts_dir> [stylua_exe] [--spaces]");
+                return Ok(());
+            }
+            let stylua = args
+                .get(3)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| tools::find_tool("stylua.exe"));
+            let use_tabs = !args.iter().any(|a| a == "--spaces");
+            let (logger, handle) = make_cli_logger();
+            lua::sf2::batch_format_stylua(Path::new(&args[2]), &stylua, use_tabs, &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+        "create_map" => {
+            if args.len() < 5 {
+                eprintln!("Usage: SFTool create_map <target_dir> <project_name> <map_name>");
+                return Ok(());
+            }
+            let path = lua::sf2::create_map_scaffolding(
+                Path::new(&args[2]),
+                args[3].as_str(),
+                args[4].as_str(),
+            )?;
+            println!("[+] Map project created at: {:?}", path);
+        }
+        "export_emmylua" => {
+            if args.len() < 3 {
+                eprintln!("Usage: SFTool export_emmylua <out_file.lua>");
+                return Ok(());
+            }
+            let count = lua::sf2_api::export_emmylua_definitions(Path::new(&args[2]))?;
+            println!(
+                "[+] Exported {} EmmyLua definitions to {:?}",
+                count, args[2]
+            );
         }
         unknown => {
             eprintln!("[!] Unknown CLI command: '{}'", unknown);
@@ -280,6 +345,11 @@ fn run_gui() -> Result<(), slint::PlatformError> {
 
     ui.set_log_text("System Ready.\n".into());
     ui.set_status_msg("Ready.".into());
+
+    // Auto-discover tool paths from /bin
+    let (default_luadec, default_luac4, _, _) = tools::get_default_toolpaths();
+    ui.set_luadec_path(default_luadec.to_string_lossy().into_owned().into());
+    ui.set_luac_path(default_luac4.to_string_lossy().into_owned().into());
 
     let (log_tx, log_rx) = mpsc::channel::<String>();
     let logger_base = UiLogger { sender: log_tx };
@@ -311,7 +381,7 @@ fn run_gui() -> Result<(), slint::PlatformError> {
     ui.on_browse_file(move |ext| {
         let ext_str = ext.as_str();
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Archive/Database/Executable", &[ext_str])
+            .add_filter("Archive/Database/Script", &[ext_str])
             .pick_file()
         {
             let path_str = path.to_string_lossy().into_owned();
@@ -374,7 +444,7 @@ fn run_gui() -> Result<(), slint::PlatformError> {
     ui.on_save_file(|ext| {
         let ext_str = ext.as_str();
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Archive/Database", &[ext_str])
+            .add_filter("Archive/Database/Script", &[ext_str])
             .save_file()
         {
             SharedString::from(path.to_string_lossy().into_owned())
@@ -1038,7 +1108,7 @@ fn run_gui() -> Result<(), slint::PlatformError> {
         });
     });
 
-    // ---------------- LUA SCRIPTING CALLBACKS ----------------
+    // ---------------- LUA SCRIPTING & TOOLS ----------------
     let logger_lua_dec = logger_base.clone();
     ui.on_decompile_lua(move |src, dst, luadec, resume| {
         let logger = logger_lua_dec.clone();
@@ -1048,7 +1118,7 @@ fn run_gui() -> Result<(), slint::PlatformError> {
 
         thread::spawn(move || {
             if let Err(e) =
-                lua::batch_decompile(&src_path, &dst_path, &luadec_path, resume, &logger)
+                lua::sf1::batch_decompile(&src_path, &dst_path, &luadec_path, resume, &logger)
             {
                 logger.log(&format!("[!] Decompile Error: {}", e));
             }
@@ -1062,7 +1132,7 @@ fn run_gui() -> Result<(), slint::PlatformError> {
         let luac_path = PathBuf::from(luac.as_str());
 
         thread::spawn(move || {
-            if let Err(e) = lua::batch_check_syntax(&src_path, &luac_path, &logger) {
+            if let Err(e) = lua::sf1::batch_check_syntax(&src_path, &luac_path, &logger) {
                 logger.log(&format!("[!] Syntax Check Error: {}", e));
             }
         });
@@ -1075,8 +1145,145 @@ fn run_gui() -> Result<(), slint::PlatformError> {
         let indent = if use_tabs { "\t" } else { "  " };
 
         thread::spawn(move || {
-            if let Err(e) = lua::batch_format(&src_path, indent, &logger) {
+            if let Err(e) = lua::sf1::batch_format(&src_path, indent, &logger) {
                 logger.log(&format!("[!] Format Error: {}", e));
+            }
+        });
+    });
+
+    let logger_lua_sf2_chk = logger_base.clone();
+    ui.on_check_lua_syntax_sf2(move |src, luac| {
+        let logger = logger_lua_sf2_chk.clone();
+        let src_path = PathBuf::from(src.as_str());
+        let luac_path = tools::find_tool(luac.as_str());
+
+        thread::spawn(move || {
+            let _ = lua::sf2::batch_check_syntax_sf2(&src_path, &luac_path, &logger);
+        });
+    });
+
+    let logger_lua_stylua = logger_base.clone();
+    ui.on_format_lua_stylua(move |src, stylua, use_tabs| {
+        let logger = logger_lua_stylua.clone();
+        let src_path = PathBuf::from(src.as_str());
+        let stylua_path = tools::find_tool(stylua.as_str());
+
+        thread::spawn(move || {
+            if let Err(e) =
+                lua::sf2::batch_format_stylua(&src_path, &stylua_path, use_tabs, &logger)
+            {
+                logger.log(&format!("[!] StyLua Error: {}", e));
+            }
+        });
+    });
+
+    // ---------------- LUA SF2 API REFERENCE & SCAFFOLDING ----------------
+    let current_api_matches = Arc::new(Mutex::new(Vec::<&'static lua::LuaApiItem>::new()));
+
+    let update_api_view = {
+        let ui_weak = ui_handle.clone();
+        let matches_cache = current_api_matches.clone();
+        move |query: &str, category: &str| {
+            let filtered = lua::sf2_api::search_api(query, category);
+            *matches_cache.lock().unwrap() = filtered.clone();
+
+            let list_items: Vec<_> = filtered
+                .iter()
+                .map(|item| StandardListViewItem::from(SharedString::from(item.name)))
+                .collect();
+
+            let first_name = filtered.first().map(|i| i.name).unwrap_or("");
+            let first_snippet = filtered.first().map(|i| i.snippet).unwrap_or("");
+            let first_desc = filtered.first().map(|i| i.description).unwrap_or("");
+
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                ui.set_api_list(ModelRc::from(Rc::new(VecModel::from(list_items))));
+                ui.set_selected_fn_name(first_name.into());
+                ui.set_selected_fn_snippet(first_snippet.into());
+                ui.set_selected_fn_desc(first_desc.into());
+            });
+        }
+    };
+
+    update_api_view("", "All Categories");
+
+    let ui_weak_search = ui_handle.clone();
+    let matches_search = current_api_matches.clone();
+    ui.on_search_api_query(move |q, c| {
+        let filtered = lua::sf2_api::search_api(q.as_str(), c.as_str());
+        *matches_search.lock().unwrap() = filtered.clone();
+
+        let list_items: Vec<_> = filtered
+            .iter()
+            .map(|item| StandardListViewItem::from(SharedString::from(item.name)))
+            .collect();
+
+        let _ = ui_weak_search.upgrade_in_event_loop(move |ui| {
+            ui.set_api_list(ModelRc::from(Rc::new(VecModel::from(list_items))));
+        });
+    });
+
+    let ui_weak_sel_api = ui_handle.clone();
+    let matches_sel = current_api_matches.clone();
+    ui.on_select_api_entry(move |idx| {
+        let lock = matches_sel.lock().unwrap();
+        if let Some(item) = lock.get(idx as usize) {
+            let name = item.name.to_string();
+            let snippet = item.snippet.to_string();
+            let desc = item.description.to_string();
+            let _ = ui_weak_sel_api.upgrade_in_event_loop(move |ui| {
+                ui.set_selected_fn_name(name.into());
+                ui.set_selected_fn_snippet(snippet.into());
+                ui.set_selected_fn_desc(desc.into());
+            });
+        }
+    });
+
+    let logger_copy = logger_base.clone();
+    ui.on_copy_snippet_to_clipboard(move |text| {
+        let logger = logger_copy.clone();
+        let t = text.to_string();
+        thread::spawn(move || {
+            if let Ok(mut clipboard) = arboard::Clipboard::new()
+                && clipboard.set_text(t).is_ok()
+            {
+                logger.log("[+] Snippet copied to system clipboard!");
+            }
+        });
+    });
+
+    let logger_scaffold = logger_base.clone();
+    ui.on_create_map_project(move |dest, proj, map| {
+        let logger = logger_scaffold.clone();
+        let d = PathBuf::from(dest.as_str());
+        let p = proj.to_string();
+        let m = map.to_string();
+        thread::spawn(move || match lua::sf2::create_map_scaffolding(&d, &p, &m) {
+            Ok(path) => {
+                logger.log(&format!(
+                    "[+] Successfully created map scaffold at: {:?}",
+                    path
+                ));
+            }
+            Err(e) => {
+                logger.log(&format!("[!] Error creating map scaffold: {}", e));
+            }
+        });
+    });
+
+    let logger_emmy = logger_base.clone();
+    ui.on_export_emmylua_defs(move |out_path| {
+        let logger = logger_emmy.clone();
+        let p = PathBuf::from(out_path.as_str());
+        thread::spawn(move || match lua::sf2_api::export_emmylua_definitions(&p) {
+            Ok(count) => {
+                logger.log(&format!(
+                    "[+] Exported {} EmmyLua definitions to {:?}",
+                    count, p
+                ));
+            }
+            Err(e) => {
+                logger.log(&format!("[!] Error exporting EmmyLua definitions: {}", e));
             }
         });
     });
