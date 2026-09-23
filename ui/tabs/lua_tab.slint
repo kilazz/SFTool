@@ -22,7 +22,7 @@ export component LuaTab inherits HorizontalLayout {
     // Engine Mode: "SpellForce 1 (Lua 4.0)" vs "SpellForce 2 (Lua 5.0 GDS)"
     in-out property <string> lua_engine_mode: "SpellForce 1 (Lua 4.0)";
 
-    // SF1 Bytecode Properties
+    // Script / Directory Properties
     in-out property <string> lua_src_dir: "";
     in-out property <string> lua_out_dir: "";
     in-out property <string> luadec_path: "luadec_32_deb.exe";
@@ -47,12 +47,12 @@ export component LuaTab inherits HorizontalLayout {
     callback browse_file(string) -> string;
     callback save_file(string) -> string;
 
-    // Callbacks: SF1 Core
+    // Callbacks: SpellForce 1 Core
     callback decompile_lua(string, string, string, bool);
     callback check_lua_syntax(string, string);
     callback format_lua_scripts(string, bool);
 
-    // Callbacks: SF2 Core (Именно они отсутствовали)
+    // Callbacks: SpellForce 2 Core
     callback check_lua_syntax_sf2(string, string);
     callback format_lua_stylua(string, string, bool);
     callback search_api_query(string, string);
@@ -140,7 +140,7 @@ export component LuaTab inherits HorizontalLayout {
         }
     }
 
-    // LEFT PANEL: ENGINE SELECTOR & TOOLS
+    // LEFT PANEL: ENGINE SELECTOR & CONFIGURATION
     Rectangle {
         width: root.sidebar_width;
         background: #2b2d31;
@@ -187,6 +187,7 @@ export component LuaTab inherits HorizontalLayout {
                                     spacing: 4px;
                                     LineEdit {
                                         text <=> root.lua_src_dir;
+                                        placeholder-text: "Path to scripts folder...";
                                         height: 28px;
                                         font-family: "Consolas";
                                         font-size: 11px;
@@ -208,6 +209,7 @@ export component LuaTab inherits HorizontalLayout {
                                     spacing: 4px;
                                     LineEdit {
                                         text <=> root.lua_out_dir;
+                                        placeholder-text: "Output directory...";
                                         height: 28px;
                                         font-family: "Consolas";
                                         font-size: 11px;
@@ -244,7 +246,7 @@ export component LuaTab inherits HorizontalLayout {
                             HorizontalLayout {
                                 spacing: 6px;
                                 CustomButton {
-                                    text: "Check Syntax";
+                                    text: "Check Syntax (luac4)";
                                     enabled: root.lua_src_dir != "";
                                     primary-color: #4e5058;
                                     clicked => { root.check_lua_syntax(root.lua_src_dir, root.luac_path); }
@@ -293,20 +295,43 @@ export component LuaTab inherits HorizontalLayout {
                         title: "SF2 Syntax & StyLua Tools";
                         VerticalLayout {
                             spacing: 6px;
+
+                            FormRow {
+                                title: "Scripts Dir:";
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    LineEdit {
+                                        text <=> root.lua_src_dir;
+                                        placeholder-text: "Path to SF2 scripts folder...";
+                                        height: 28px;
+                                        font-family: "Consolas";
+                                        font-size: 11px;
+                                    }
+
+                                    CustomButton {
+                                        text: "...";
+                                        compact: true;
+                                        width: 30px;
+                                        height: 28px;
+                                        clicked => { root.lua_src_dir = root.browse_folder(); }
+                                    }
+                                }
+                            }
+
                             HorizontalLayout {
                                 spacing: 6px;
                                 CustomButton {
                                     text: "Check (luac5.1)";
                                     enabled: root.lua_src_dir != "";
                                     primary-color: #4e5058;
-                                    clicked => { root.check_lua_syntax_sf2(root.lua_src_dir, "bin/luac5.1.exe"); }
+                                    clicked => { root.check_lua_syntax_sf2(root.lua_src_dir, "luac5.1.exe"); }
                                 }
 
                                 CustomButton {
                                     text: "Format (StyLua 5.1)";
                                     enabled: root.lua_src_dir != "";
                                     primary-color: #3e6a90;
-                                    clicked => { root.format_lua_stylua(root.lua_src_dir, "bin/stylua.exe", true); }
+                                    clicked => { root.format_lua_stylua(root.lua_src_dir, "stylua.exe", true); }
                                 }
                             }
                         }
@@ -339,7 +364,7 @@ export component LuaTab inherits HorizontalLayout {
         }
     }
 
-    // RIGHT PANEL
+    // RIGHT PANEL: CONTENT VIEWPORTS
     Rectangle {
         horizontal-stretch: 1;
         background: #2b2d31;
@@ -362,7 +387,7 @@ export component LuaTab inherits HorizontalLayout {
 
             Text {
                 text: "SpellForce 1 uses a customized, proprietary Lua 4.0.1 virtual machine modified by Phenomic in 2002-2003.\n\n" +
-                    "• Header Signature: Bytecode starts with '\\x1bLua' followed by byte 0x40.\n" +
+                    "• Header Signature: Bytecode starts with '\\x1bLua' followed by version byte 0x40.\n" +
                     "• Custom VM Opcodes: Phenomic added customized instruction sets for direct entity manipulation.\n" +
                     "• Parallel Decompiler: Multi-threaded batch extraction using 'luadec_32_deb.exe'.\n" +
                     "• Syntax Validation: Verifies syntax compatibility using 'luac4 -p'.\n" +
