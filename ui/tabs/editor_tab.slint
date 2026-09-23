@@ -23,6 +23,7 @@ export component EditorTab inherits HorizontalLayout {
     in-out property <string> editor_asset_source: "";
     in-out property <string> editor_filter: "";
     in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
+    in-out property <[string]> available_categories: ["2D Gfx Items (0x07DC)", "Spells Mapping (0x07E2)", "Localized Strings"];
     in-out property <string> editor_lang_filter: "All Languages";
     in-out property <[string]> available_languages: [
         "All Languages",
@@ -260,7 +261,7 @@ export component EditorTab inherits HorizontalLayout {
                     FormRow {
                         title: "Category:";
                         ComboBox {
-                            model: ["2D Gfx Items (0x07DC)", "Spells Mapping (0x07E2)", "Localized Strings"];
+                            model: root.available_categories;
                             current-value <=> root.editor_active_category;
                             height: 28px;
                             selected(cat) => {
@@ -621,8 +622,8 @@ export component EditorTab inherits HorizontalLayout {
                 }
             }
 
-            // B. SINGLE LIVE PREVIEW SHOWCASE FOR 2D GFX ITEMS (0x07DC)
-            if root.editor_active_category == "2D Gfx Items (0x07DC)": HorizontalLayout {
+            // B. SINGLE LIVE PREVIEW SHOWCASE FOR 2D / 3D GFX ITEMS & ABILITIES
+            if root.editor_active_category != "Spells Mapping (0x07E2)" && root.editor_active_category != "Localized Strings": HorizontalLayout {
                 spacing: 12px;
                 alignment: start;
                 height: 96px;
@@ -700,7 +701,7 @@ export component EditorTab inherits HorizontalLayout {
             }
 
             if root.editor_active_category != "Localized Strings": FormRow {
-                title: root.editor_active_category == "2D Gfx Items (0x07DC)" ? "Mesh File (.msh):" : "Target / Scroll ID:";
+                title: (root.editor_active_category == "2D Gfx Items (0x07DC)" || root.editor_active_category == "Visual Meshes (0x2335)" || root.editor_active_category == "Abilities (0x234E)") ? "Mesh / Icon Asset:" : "Target / Scroll ID:";
                 label-width: 130px;
                 LineEdit {
                     text <=> root.editor_field_val1;
@@ -742,7 +743,8 @@ export component EditorTab inherits HorizontalLayout {
 
             Text {
                 text: "Live Visual Preview & Multi-Language Guide:\n" +
-                    "• 2D Gfx Items: Renders real DDS/TGA textures parsed directly from unpacked game textures or PAK archives.\n" +
+                    "• Asset Source: Select a .pak file or folder to stream DDS/TGA textures directly on the fly.\n" +
+                    "• Phenomic VFS Layering: Automatically mounts archives in reverse order (sf35.pak -> sf0.pak).\n" +
                     "• Spells Mapping: Side-by-side Dual Cards cross-referencing Combat Spell and Inventory Scroll.\n" +
                     "• Math Architecture: str_id = (campaign << 24) | (lang_id << 16) | base_id.\n" +
                     "• ↶ Undo / ↷ Redo: Revert changes made during current session.";

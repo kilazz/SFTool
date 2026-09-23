@@ -67,17 +67,36 @@ pub fn encode_by_lang(text: &str, lang_id: u16) -> Vec<u8> {
     }
 }
 
+/// Robust Windows-1251 vs Windows-1252 heuristic decoder.
+/// Prevents Western European umlauts (ä, ö, ü, ß) from being misidentified as Cyrillic.
 pub fn decode_windows(bytes: &[u8]) -> String {
     if let Ok(utf8_str) = std::str::from_utf8(bytes) {
         return utf8_str.to_string();
     }
 
-    let cyrillic_hits = bytes.iter().filter(|&&b| b >= 0xC0).count();
-    if cyrillic_hits >= 2 || (!bytes.is_empty() && bytes.len() <= 3 && cyrillic_hits >= 1) {
-        let (cow, _, had_errors) = WINDOWS_1251.decode(bytes);
-        if !had_errors {
-            return cow.into_owned();
+    let mut max_consecutive_cyrillic = 0;
+    let mut current_consecutive = 0;
+    let mut latin_count = 0;
+
+    for &b in bytes {
+        if b.is_ascii_alphabetic() {
+            latin_count += 1;
+            current_consecutive = 0;
+        } else if b >= 0xC0 {
+            current_consecutive += 1;
+            if current_consecutive > max_consecutive_cyrillic {
+                max_consecutive_cyrillic = current_consecutive;
+            }
+        } else {
+            current_consecutive = 0;
         }
+    }
+
+    // Only decode as CP1251 if there are meaningful consecutive Cyrillic character sequences
+    // and Latin text does not dominate the buffer.
+    if max_consecutive_cyrillic >= 3 && latin_count < max_consecutive_cyrillic {
+        let (cow, _, _) = WINDOWS_1251.decode(bytes);
+        return cow.into_owned();
     }
 
     let (cow, _, _) = WINDOWS_1252.decode(bytes);

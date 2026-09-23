@@ -9,83 +9,11 @@ use std::fs::{self, File};
 use std::io::{self, Cursor, Read, Write};
 use std::path::Path;
 
-pub struct Sf1ChunkInfo {
-    pub name: &'static str,
-    pub stride: usize,
-    pub default_c_type: i16,
-}
-
-pub fn get_sf1_chunk_info(id: u32) -> Option<Sf1ChunkInfo> {
-    match id {
-        0x07DC => Some(Sf1ChunkInfo {
-            name: "2dGfxItems",
-            stride: 69,
-            default_c_type: 1,
-        }),
-        0x07E1 => Some(Sf1ChunkInfo {
-            name: "SpellMultiMap",
-            stride: 6,
-            default_c_type: 1,
-        }),
-        0x07E2 => Some(Sf1ChunkInfo {
-            name: "SpellsBiMap",
-            stride: 4,
-            default_c_type: 1,
-        }),
-        0x07F7 => Some(Sf1ChunkInfo {
-            name: "TextDialogueMap",
-            stride: 4,
-            default_c_type: 1,
-        }),
-        0x07FC => Some(Sf1ChunkInfo {
-            name: "TypeCategoryMap",
-            stride: 3,
-            default_c_type: 1,
-        }),
-        0x07FF => Some(Sf1ChunkInfo {
-            name: "EntityLinkMap",
-            stride: 5,
-            default_c_type: 1,
-        }),
-        0x0800 => Some(Sf1ChunkInfo {
-            name: "ComplexProperties",
-            stride: 15,
-            default_c_type: 3,
-        }), // Mandatory c_type == 3 in Phenomic engine
-        0x0801 => Some(Sf1ChunkInfo {
-            name: "WordValuesArray",
-            stride: 2,
-            default_c_type: 1,
-        }),
-        0x080A => Some(Sf1ChunkInfo {
-            name: "LocalizedStringIds",
-            stride: 4,
-            default_c_type: 1,
-        }),
-        0x080B => Some(Sf1ChunkInfo {
-            name: "AudioSpeechParams",
-            stride: 6,
-            default_c_type: 1,
-        }),
-        0x080E => Some(Sf1ChunkInfo {
-            name: "CompoundKeyTable",
-            stride: 9,
-            default_c_type: 1,
-        }),
-        0x0818 => Some(Sf1ChunkInfo {
-            name: "SystemLookupMap",
-            stride: 4,
-            default_c_type: 1,
-        }),
-        _ => None,
-    }
-}
+pub use super::sf1::get_sf1_chunk_info;
+pub use super::sf2::get_sf2_chunk_info;
 
 pub fn get_sf2_chunk_name(id: u32) -> Option<&'static str> {
-    match id {
-        0x234E => Some("Abilities"),
-        _ => None,
-    }
+    get_sf2_chunk_info(id).map(|info| info.name)
 }
 
 #[derive(Serialize, Deserialize)]

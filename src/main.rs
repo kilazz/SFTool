@@ -619,6 +619,7 @@ fn run_gui() -> Result<(), slint::PlatformError> {
         let cache = cache_load.clone();
 
         thread::spawn(move || {
+            let detected_cats = cff::get_available_categories(&dir);
             let items = cff::load_editor_items(&dir, &cat, &flt, &lang);
             let available_langs = cff::get_available_languages_display(&dir);
             *cache.lock().unwrap() = items.clone();
@@ -633,7 +634,10 @@ fn run_gui() -> Result<(), slint::PlatformError> {
                 .map(SharedString::from)
                 .collect();
 
+            let cat_items: Vec<_> = detected_cats.into_iter().map(SharedString::from).collect();
+
             let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                ui.set_available_categories(ModelRc::from(Rc::new(VecModel::from(cat_items))));
                 ui.set_available_languages(ModelRc::from(Rc::new(VecModel::from(lang_items))));
                 let slint_model = ModelRc::from(Rc::new(VecModel::from(list_items)));
                 ui.set_editor_entries(slint_model);
@@ -662,7 +666,7 @@ fn run_gui() -> Result<(), slint::PlatformError> {
                 let asset_src = PathBuf::from(ui.get_editor_asset_source().as_str());
 
                 thread::spawn(move || {
-                    if cat == "2D Gfx Items (0x07DC)" {
+                    if cat.contains("0x07DC") || cat.contains("0x2335") || cat.contains("0x234E") {
                         if let Some((rgba, fname)) =
                             cff::find_and_load_texture(&dir, &asset_src, &val1)
                         {
@@ -672,13 +676,13 @@ fn run_gui() -> Result<(), slint::PlatformError> {
                                 ui.set_asset_status_text(status.into());
                             });
                         } else {
-                            let status = format!("Texture '{}.dds' not found.", val1);
+                            let status = format!("Texture asset '{}' not found.", val1);
                             let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                                 ui.set_preview_icon1(Image::default());
                                 ui.set_asset_status_text(status.into());
                             });
                         }
-                    } else if cat == "Spells Mapping (0x07E2)" {
+                    } else if cat.contains("0x07E2") {
                         let spell_id = id.parse::<u16>().unwrap_or(0);
                         let scroll_id = val1.parse::<u16>().unwrap_or(0);
                         let details = cff::resolve_spell_cross_reference(&dir, spell_id, scroll_id);

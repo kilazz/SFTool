@@ -42,6 +42,7 @@ export component AppWindow inherits Window {
     in-out property <string> editor_asset_source: "";
     in-out property <string> editor_filter: "";
     in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
+    in-out property <[string]> available_categories: ["2D Gfx Items (0x07DC)", "Spells Mapping (0x07E2)", "Localized Strings"];
     in-out property <string> editor_lang_filter: "All Languages";
     in-out property <[string]> available_languages: [
         "All Languages",
@@ -227,6 +228,7 @@ export component AppWindow inherits Window {
                 editor_asset_source <=> root.editor_asset_source;
                 editor_filter <=> root.editor_filter;
                 editor_active_category <=> root.editor_active_category;
+                available_categories <=> root.available_categories;
                 editor_lang_filter <=> root.editor_lang_filter;
                 available_languages <=> root.available_languages;
                 editor_entries: root.editor_entries;
