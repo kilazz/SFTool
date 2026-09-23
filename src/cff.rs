@@ -5,7 +5,7 @@ use flate2::Compression;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::{self, Cursor, Read, Write};
 use std::path::Path;
@@ -1362,8 +1362,9 @@ pub fn load_editor_items(
             }
         }
     } else {
-        // Localized Strings with Bitmask Language Math & Campaign Detection
+        let tags = get_language_tag_map(cff_dir);
         let json_dir = cff_dir.join("texts_json");
+
         if let Ok(entries) = fs::read_dir(json_dir) {
             for entry in entries.filter_map(|e| e.ok()) {
                 let path = entry.path();
@@ -1381,36 +1382,23 @@ pub fn load_editor_items(
                                 .and_then(|s| s.parse::<u32>().ok())
                                 .unwrap_or(0);
 
-                            // BITMASK EXTRACTION: Prevents [EXT] fallback bug
+                            // Exact bitmask unpacking: No more [EXT] bugs!
                             let lang = ((str_id >> 16) & 0xFF) as u8;
                             let camp = (str_id >> 24) as u8;
                             let base = (str_id & 0xFFFF) as u16;
 
-                            let tag = match lang {
-                                0 => "DE",
-                                1 => "EN",
-                                2 => "FR",
-                                3 => "ES",
-                                4 => "IT",
-                                5 => "RU",
-                                _ => "CUSTOM",
-                            };
+                            let tag = tags
+                                .get(&lang)
+                                .cloned()
+                                .unwrap_or_else(|| format!("L{}", lang));
                             (lang, base, camp, tag)
                         } else {
-                            (1, 0, 0, "TXT")
+                            (1, 0, 0, "TXT".to_string())
                         };
 
-                        let lang_match = match lang_filter {
-                            "Slot 0: German (DE)" => l_id == 0,
-                            "Slot 1: English (EN)" => l_id == 1,
-                            "Slot 2: French (FR)" => l_id == 2,
-                            "Slot 3: Spanish (ES)" => l_id == 3,
-                            "Slot 4: Italian (IT)" => l_id == 4,
-                            "Slot 5: Custom (RU/PL/etc.)" => l_id >= 5,
-                            _ => true,
-                        };
-
-                        if !lang_match {
+                        if lang_filter != "All Languages"
+                            && !lang_filter.contains(&format!("Slot {}", l_id))
+                        {
                             continue;
                         }
 
@@ -1761,8 +1749,99 @@ pub fn delete_editor_item(
 }
 
 // -----------------------------------------------------------------------------
-// UNIFIED MULTI-LANGUAGE CLONING & SLOT IMPORT / EXPORT TOOLS
+// UNIFIED MULTI-LANGUAGE TAGGING & DISCOVERY ENGINE
 // -----------------------------------------------------------------------------
+
+pub fn get_language_tag_map(cff_dir: &Path) -> BTreeMap<u8, String> {
+    let mut map = BTreeMap::new();
+    map.insert(0, "DE".to_string());
+    map.insert(1, "EN".to_string());
+    map.insert(2, "FR".to_string());
+    map.insert(3, "ES".to_string());
+    map.insert(4, "IT".to_string());
+
+    let meta_path = cff_dir.join(".lang_tags.json");
+    if meta_path.exists()
+        && let Ok(content) = fs::read_to_string(&meta_path)
+        && let Ok(saved_tags) = serde_json::from_str::<BTreeMap<String, String>>(&content)
+    {
+        for (slot_str, tag) in saved_tags {
+            if let Ok(slot) = slot_str.parse::<u8>() {
+                map.insert(slot, tag);
+            }
+        }
+    }
+    map
+}
+
+pub fn save_language_tag(cff_dir: &Path, slot: u8, tag: &str) -> io::Result<()> {
+    let mut tags = get_language_tag_map(cff_dir);
+    tags.insert(slot, tag.to_uppercase());
+
+    let mut str_map = BTreeMap::new();
+    for (s, t) in tags {
+        str_map.insert(s.to_string(), t);
+    }
+
+    let meta_path = cff_dir.join(".lang_tags.json");
+    let f = File::create(meta_path)?;
+    serde_json::to_writer_pretty(f, &str_map)?;
+    Ok(())
+}
+
+pub fn get_available_languages_display(cff_dir: &Path) -> Vec<String> {
+    let mut list = vec!["All Languages".to_string()];
+    let tags = get_language_tag_map(cff_dir);
+
+    let manifest_path = cff_dir.join("manifest.json");
+    let mut detected_slots = BTreeSet::new();
+
+    if let Ok(m_str) = fs::read_to_string(manifest_path)
+        && let Ok(manifest) = serde_json::from_str::<Manifest>(&m_str)
+    {
+        for chunk in &manifest.chunks {
+            let chunk_path = cff_dir.join(&chunk.file);
+            if let Ok(data) = fs::read(&chunk_path)
+                && data.len() >= 566
+                && data.len().is_multiple_of(566)
+            {
+                let num_blocks = data.len() / 566;
+                for i in 0..num_blocks {
+                    let offset = i * 566;
+                    let str_id = Cursor::new(&data[offset..offset + 4])
+                        .read_u32::<LittleEndian>()
+                        .unwrap_or(0);
+                    let lang_id = ((str_id >> 16) & 0xFF) as u8;
+                    detected_slots.insert(lang_id);
+                }
+            }
+        }
+    }
+
+    if detected_slots.is_empty() {
+        for i in 0..=4 {
+            detected_slots.insert(i);
+        }
+    }
+
+    for slot in detected_slots {
+        let tag = tags
+            .get(&slot)
+            .cloned()
+            .unwrap_or_else(|| format!("L{}", slot));
+        let lang_name = match slot {
+            0 => "German",
+            1 => "English",
+            2 => "French",
+            3 => "Spanish",
+            4 => "Italian",
+            _ => "Custom",
+        };
+        list.push(format!("Slot {}: {} [{}]", slot, lang_name, tag));
+    }
+
+    list
+}
 
 pub fn parse_slot_number(lang_str: &str) -> u8 {
     if lang_str.contains("Slot 0") {
@@ -1777,6 +1856,12 @@ pub fn parse_slot_number(lang_str: &str) -> u8 {
         4
     } else if lang_str.contains("Slot 5") {
         5
+    } else if let Some(part) = lang_str.strip_prefix("Slot ") {
+        part.chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect::<String>()
+            .parse::<u8>()
+            .unwrap_or(1)
     } else {
         1
     }
@@ -1827,6 +1912,50 @@ pub fn import_language_to_slot(
     replace_slot_from_json(cff_dir, slot as u16, in_json, logger)
 }
 
+pub fn clone_and_export_language(
+    cff_dir: &Path,
+    src_slot: u8,
+    dst_slot: u8,
+    custom_tag: &str,
+    export_json_path: &Path,
+    logger: &UiLogger,
+) -> io::Result<usize> {
+    let tag = custom_tag.trim().to_uppercase();
+    logger.log(&format!(
+        "[*] Starting One-Click Language Clone: Slot {} -> Slot {} [{}]",
+        src_slot, dst_slot, tag
+    ));
+
+    save_language_tag(cff_dir, dst_slot, &tag)?;
+    let cloned_count = clone_language_slot(cff_dir, src_slot as u16, dst_slot as u16, logger)?;
+
+    let items = load_editor_items(
+        cff_dir,
+        "Localized Strings",
+        "",
+        &format!("Slot {}", dst_slot),
+    );
+    let mut clean_map: BTreeMap<String, String> = BTreeMap::new();
+
+    for it in &items {
+        if let Some(pos) = it.val2.find("Base ID: ") {
+            let id_part = &it.val2[pos + 9..];
+            clean_map.insert(id_part.to_string(), it.val1.clone());
+        } else {
+            clean_map.insert(it.id_str.clone(), it.val1.clone());
+        }
+    }
+
+    let f = File::create(export_json_path)?;
+    serde_json::to_writer_pretty(f, &clean_map)?;
+
+    logger.log(&format!(
+        "[+] Successfully cloned {} phrases! Clean JSON saved to: {:?}",
+        cloned_count, export_json_path
+    ));
+    Ok(cloned_count)
+}
+
 pub fn clone_language_slot(
     cff_dir: &Path,
     src_slot: u16,
@@ -1845,7 +1974,6 @@ pub fn clone_language_slot(
 
     let mut cloned_count = 0;
 
-    // 1. Clone inside binary chunk_*.dat files
     for chunk in &manifest.chunks {
         let chunk_path = cff_dir.join(&chunk.file);
         if !chunk_path.exists() {
@@ -1887,7 +2015,6 @@ pub fn clone_language_slot(
         }
     }
 
-    // 2. Synchronize texts_json files so GUI refreshes immediately
     let json_dir = cff_dir.join("texts_json");
     if json_dir.exists()
         && let Ok(entries) = fs::read_dir(&json_dir)
@@ -1949,7 +2076,6 @@ pub fn replace_slot_from_json(
 
     let mut updated_count = 0;
 
-    // 1. Overwrite in binary chunk_*.dat files
     for chunk in &manifest.chunks {
         let chunk_path = cff_dir.join(&chunk.file);
         if !chunk_path.exists() {
@@ -1993,7 +2119,6 @@ pub fn replace_slot_from_json(
         File::create(&chunk_path)?.write_all(&data)?;
     }
 
-    // 2. Overwrite in texts_json so GUI immediately refreshes
     let json_dir = cff_dir.join("texts_json");
     if json_dir.exists()
         && let Ok(entries) = fs::read_dir(&json_dir)

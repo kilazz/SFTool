@@ -550,6 +550,7 @@ fn run_gui() -> Result<(), slint::PlatformError> {
 
         thread::spawn(move || {
             let items = cff::load_editor_items(&dir, &cat, &flt, &lang);
+            let available_langs = cff::get_available_languages_display(&dir);
             *cache.lock().unwrap() = items.clone();
 
             let list_items: Vec<_> = items
@@ -557,7 +558,13 @@ fn run_gui() -> Result<(), slint::PlatformError> {
                 .map(|it| StandardListViewItem::from(SharedString::from(it.display)))
                 .collect();
 
+            let lang_items: Vec<_> = available_langs
+                .into_iter()
+                .map(SharedString::from)
+                .collect();
+
             let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                ui.set_available_languages(ModelRc::from(Rc::new(VecModel::from(lang_items))));
                 let slint_model = ModelRc::from(Rc::new(VecModel::from(list_items)));
                 ui.set_editor_entries(slint_model);
                 ui.set_status_msg("Loaded balance records.".into());
@@ -898,36 +905,6 @@ fn run_gui() -> Result<(), slint::PlatformError> {
         );
     });
 
-    let logger_clone_slot = logger_base.clone();
-    let ui_weak_clone_slot = ui_handle.clone();
-    ui.on_clone_language_slot(move |cff_dir, src_slot, dst_slot| {
-        let dir = PathBuf::from(cff_dir.as_str());
-        let logger = logger_clone_slot.clone();
-        let ui_weak = ui_weak_clone_slot.clone();
-
-        thread::spawn(move || {
-            match cff::clone_language_slot(&dir, src_slot as u16, dst_slot as u16, &logger) {
-                Ok(count) => {
-                    logger.log(&format!(
-                        "[+] Successfully cloned {} phrases to Slot {}!",
-                        count, dst_slot
-                    ));
-                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-                        let cff_p = ui.get_editor_cff_dir();
-                        let cat_p = ui.get_editor_active_category();
-                        let flt_p = ui.get_editor_filter();
-                        let lang_p = ui.get_editor_lang_filter();
-                        ui.invoke_load_editor_data(cff_p, cat_p, flt_p, lang_p);
-                        ui.set_status_msg("Language slot cloned successfully.".into());
-                    });
-                }
-                Err(e) => {
-                    logger.log(&format!("[!] Slot Clone Error: {}", e));
-                }
-            }
-        });
-    });
-
     let logger_exp_lang = logger_base.clone();
     let ui_weak_exp = ui_handle.clone();
     ui.on_export_single_language(move |cff_dir, lang, out_f| {
@@ -969,6 +946,46 @@ fn run_gui() -> Result<(), slint::PlatformError> {
                     ui.invoke_load_editor_data(cff_p, cat_p, flt_p, lang_p);
                     ui.set_status_msg("Imported translations to slot.".into());
                 });
+            }
+        });
+    });
+
+    let logger_clone_exec = logger_base.clone();
+    let ui_weak_clone_exec = ui_handle.clone();
+    ui.on_execute_clone_language(move |cff_dir, src_slot, dst_slot, tag, out_json| {
+        let dir = PathBuf::from(cff_dir.as_str());
+        let out_p = PathBuf::from(out_json.as_str());
+        let t_str = tag.to_string();
+        let logger = logger_clone_exec.clone();
+        let ui_weak = ui_weak_clone_exec.clone();
+
+        thread::spawn(move || {
+            match cff::clone_and_export_language(
+                &dir,
+                src_slot as u8,
+                dst_slot as u8,
+                &t_str,
+                &out_p,
+                &logger,
+            ) {
+                Ok(count) => {
+                    logger.log(&format!(
+                        "[+] Done! Cloned {} phrases to Slot {} [{}]",
+                        count, dst_slot, t_str
+                    ));
+                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                        let cff_p = ui.get_editor_cff_dir();
+                        let cat_p = ui.get_editor_active_category();
+                        let flt_p = ui.get_editor_filter();
+                        let new_filter = format!("Slot {}: Custom [{}]", dst_slot, t_str);
+                        ui.set_editor_lang_filter(new_filter.clone().into());
+                        ui.invoke_load_editor_data(cff_p, cat_p, flt_p, new_filter.into());
+                        ui.set_status_msg("Cloned language and exported JSON.".into());
+                    });
+                }
+                Err(e) => {
+                    logger.log(&format!("[!] Clone Wizard Error: {}", e));
+                }
             }
         });
     });

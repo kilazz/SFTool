@@ -7,6 +7,7 @@ import {
     ScrollView,
     StandardListView,
     TextEdit,
+    SpinBox,
 } from "std-widgets.slint";
 import { CustomButton } from "../components/buttons.slint";
 import {
@@ -22,6 +23,14 @@ export component EditorTab inherits HorizontalLayout {
     in-out property <string> editor_filter: "";
     in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
     in-out property <string> editor_lang_filter: "All Languages";
+    in-out property <[string]> available_languages: [
+        "All Languages",
+        "Slot 0: German [DE]",
+        "Slot 1: English [EN]",
+        "Slot 2: French [FR]",
+        "Slot 3: Spanish [ES]",
+        "Slot 4: Italian [IT]"
+    ];
     in-out property <[StandardListViewItem]> editor_entries: [];
     in-out property <int> editor_selected_idx: -1;
     in-out property <string> editor_field_id: "";
@@ -32,11 +41,15 @@ export component EditorTab inherits HorizontalLayout {
     in-out property <bool> can_undo: false;
     in-out property <bool> can_redo: false;
 
+    // Clone Wizard Input State
+    in-out property <int> clone_src_slot: 1;
+    in-out property <int> clone_dst_slot: 6;
+    in-out property <string> clone_lang_tag: "AR";
+
     callback browse_folder() -> string;
     callback browse_file(string) -> string;
     callback save_file(string) -> string;
 
-    // Direct parameter passing avoids async synchronization delay
     callback load_editor_data(string, string, string, string);
     callback select_editor_entry(int);
     callback save_editor_entry(string, string, int, string, string, string);
@@ -51,9 +64,103 @@ export component EditorTab inherits HorizontalLayout {
     // Unified Multi-Language Callbacks
     callback export_single_language(string, string, string);
     callback import_language_to_slot(string, string, string);
-    callback clone_language_slot(string, int, int);
+    callback execute_clone_language(string, int, int, string, string);
 
     spacing: 0px;
+
+    // MODAL CLONE LANGUAGE POPUP
+    clone_popup := PopupWindow {
+        width: 380px;
+        height: 250px;
+        close-policy: close-on-click-outside;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        Rectangle {
+            background: #232529;
+            border-color: #f0b132;
+            border-width: 1.5px;
+            border-radius: 6px;
+
+            VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+
+                Text {
+                    text: "Clone Language Slot (One-Click Wizard)";
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: #ffffff;
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: #353535;
+                }
+
+                FormRow {
+                    title: "Source Slot:";
+                    label-width: 100px;
+                    SpinBox {
+                        value <=> root.clone_src_slot;
+                        minimum: 0;
+                        maximum: 4;
+                        height: 28px;
+                    }
+                }
+
+                FormRow {
+                    title: "New Slot ID:";
+                    label-width: 100px;
+                    SpinBox {
+                        value <=> root.clone_dst_slot;
+                        minimum: 5;
+                        maximum: 255;
+                        height: 28px;
+                    }
+                }
+
+                FormRow {
+                    title: "Language Tag:";
+                    label-width: 100px;
+                    LineEdit {
+                        text <=> root.clone_lang_tag;
+                        placeholder-text: "e.g. AR, TH, RU, PL, ZH";
+                        font-family: "Consolas";
+                        height: 28px;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+
+                    CustomButton {
+                        text: "Cancel";
+                        primary-color: #4e5058;
+                        clicked => { clone_popup.close(); }
+                    }
+
+                    CustomButton {
+                        text: "Clone & Export JSON";
+                        primary-color: #23a55a;
+                        clicked => {
+                            let out_json = root.save_file("json");
+                            if (out_json != "") {
+                                root.execute_clone_language(
+                                    root.editor_cff_dir,
+                                    root.clone_src_slot,
+                                    root.clone_dst_slot,
+                                    root.clone_lang_tag,
+                                    out_json);
+                                clone_popup.close();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // LEFT PANEL: BROWSER & LIST
     Rectangle {
@@ -116,15 +223,7 @@ export component EditorTab inherits HorizontalLayout {
                     if root.editor_active_category == "Localized Strings": FormRow {
                         title: "Language:";
                         ComboBox {
-                            model: [
-                                "All Languages",
-                                "Slot 0: German (DE)",
-                                "Slot 1: English (EN)",
-                                "Slot 2: French (FR)",
-                                "Slot 3: Spanish (ES)",
-                                "Slot 4: Italian (IT)",
-                                "Slot 5: Custom (RU/PL/etc.)"
-                            ];
+                            model: root.available_languages;
                             current-value <=> root.editor_lang_filter;
                             height: 28px;
                             selected(lang) => {
@@ -199,8 +298,15 @@ export component EditorTab inherits HorizontalLayout {
                     if root.editor_active_category == "Localized Strings": HorizontalLayout {
                         spacing: 6px;
                         CustomButton {
-                            text: "Export Lang JSON...";
+                            text: "🌐 Clone Slot...";
                             primary-color: #3e6a90;
+                            enabled: root.editor_cff_dir != "";
+                            clicked => { clone_popup.show(); }
+                        }
+
+                        CustomButton {
+                            text: "Export Lang JSON...";
+                            primary-color: #4e5058;
                             enabled: root.editor_cff_dir != "";
                             clicked => {
                                 let target_f = root.save_file("json");
@@ -420,12 +526,11 @@ export component EditorTab inherits HorizontalLayout {
             }
 
             Text {
-                text: "Unified Multi-Language System:\n" +
-                    "• Math Architecture: str_id = (campaign << 24) | (lang_id << 16) | base_id.\n" +
-                    "• Slots 0-4 (DE, EN, FR, ES, IT): Native European encoding (Windows-1252).\n" +
-                    "• Slot 5+ (RU/Custom): Cyrillic & custom encoding (Windows-1251).\n" +
-                    "• ↶ Undo / ↷ Redo: Revert or reapply changes made during session.\n" +
-                    "• ↺ Discard: Clear unsaved inputs back to saved state.";
+                text: "Multi-Language & Custom Locale Pipeline:\n" +
+                    "• 🌐 Clone Slot: Duplicate all phrases into a brand new slot (e.g. 6 -> AR/TH/PL/RU) in 1 click.\n" +
+                    "• Export Lang JSON: Generates clean, isolated language files without mixed languages.\n" +
+                    "• Import to Slot: Safely overwrite any language slot from translation JSONs.\n" +
+                    "• In-game Activation: Set 'ClientLanguage = <SlotID>' in sound/speech/langid.lua.";
                 color: #808080;
                 font-size: 12px;
                 wrap: word-wrap;

@@ -42,6 +42,14 @@ export component AppWindow inherits Window {
     in-out property <string> editor_filter: "";
     in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
     in-out property <string> editor_lang_filter: "All Languages";
+    in-out property <[string]> available_languages: [
+        "All Languages",
+        "Slot 0: German [DE]",
+        "Slot 1: English [EN]",
+        "Slot 2: French [FR]",
+        "Slot 3: Spanish [ES]",
+        "Slot 4: Italian [IT]"
+    ];
     in-out property <[StandardListViewItem]> editor_entries: [];
     in-out property <int> editor_selected_idx: -1;
     in-out property <string> editor_field_id: "";
@@ -92,7 +100,7 @@ export component AppWindow inherits Window {
     callback editor_redo();
     callback export_single_language(string, string, string);
     callback import_language_to_slot(string, string, string);
-    callback clone_language_slot(string, int, int);
+    callback execute_clone_language(string, int, int, string, string);
 
     // Callbacks: Lua
     callback decompile_lua(string, string, string, bool);
@@ -195,6 +203,7 @@ export component AppWindow inherits Window {
                 editor_filter <=> root.editor_filter;
                 editor_active_category <=> root.editor_active_category;
                 editor_lang_filter <=> root.editor_lang_filter;
+                available_languages <=> root.available_languages;
                 editor_entries: root.editor_entries;
                 editor_selected_idx <=> root.editor_selected_idx;
                 editor_field_id <=> root.editor_field_id;
@@ -216,7 +225,7 @@ export component AppWindow inherits Window {
                 editor_redo => { root.editor_redo() }
                 export_single_language(dir, lang, out) => { root.export_single_language(dir, lang, out) }
                 import_language_to_slot(dir, lang, file) => { root.import_language_to_slot(dir, lang, file) }
-                clone_language_slot(dir, src, dst) => { root.clone_language_slot(dir, src, dst) }
+                execute_clone_language(dir, src, dst, tag, out) => { root.execute_clone_language(dir, src, dst, tag, out) }
             }
 
             if root.active_tab == 3: LuaTab {
