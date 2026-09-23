@@ -46,7 +46,7 @@ struct SF1FileEntry {
 #### The In-Engine 16-Bit K&R Path Hash (`FUN_004a4180`)
 Inside `SpellForce.exe`, file lookup is accelerated by prepending a 2-byte hash to each filename in the String Table:
 
-$$\text{hash} = \left( \sum (\text{hash} \times 31 + \text{char}) \right) \operatorname{AND} \text{0xFFFF}$$
+$$\text{hash} = \left( \sum (\text{hash} \times 31 + \text{char}) \right) \mathbin{\text{AND}} \text{0xFFFF}$$
 
 * **Sorting Comparator:** Binary search inside the archive requires records to be sorted strictly by:
   `hash_high_byte -> hash_low_byte -> reversed_path_string`.
