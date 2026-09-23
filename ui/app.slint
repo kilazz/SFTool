@@ -80,6 +80,8 @@ export component AppWindow inherits Window {
     callback load_editor_data(string, string);
     callback select_editor_entry(int);
     callback save_editor_entry(string, string, int, string, string, string);
+    callback add_editor_entry(string, string);
+    callback duplicate_editor_entry(string, string, int, string);
 
     // Callbacks: Lua
     callback decompile_lua(string, string, string, bool);
@@ -191,6 +193,8 @@ export component AppWindow inherits Window {
                 load_editor_data(dir, cat) => { root.load_editor_data(dir, cat) }
                 select_editor_entry(idx) => { root.select_editor_entry(idx) }
                 save_editor_entry(dir, cat, idx, id, v1, v2) => { root.save_editor_entry(dir, cat, idx, id, v1, v2) }
+                add_editor_entry(dir, cat) => { root.add_editor_entry(dir, cat) }
+                duplicate_editor_entry(dir, cat, idx, id) => { root.duplicate_editor_entry(dir, cat, idx, id) }
             }
 
             if root.active_tab == 3: LuaTab {

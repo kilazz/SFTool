@@ -591,6 +591,97 @@ fn run_gui() -> Result<(), slint::PlatformError> {
         });
     });
 
+    let ui_weak_add = ui_handle.clone();
+    let cache_add = editor_items_cache.clone();
+    let logger_add = logger_base.clone();
+
+    ui.on_add_editor_entry(move |cff_dir, category| {
+        let dir = PathBuf::from(cff_dir.as_str());
+        let cat = category.to_string();
+        let ui_weak = ui_weak_add.clone();
+        let cache = cache_add.clone();
+        let logger = logger_add.clone();
+
+        thread::spawn(move || match cff::add_editor_item(&dir, &cat) {
+            Ok(new_id) => {
+                logger.log(&format!("[+] Created new record: {}", new_id));
+                let filter = ui_weak
+                    .upgrade()
+                    .map(|ui| ui.get_editor_filter().to_string())
+                    .unwrap_or_default();
+                let items = cff::load_editor_items(&dir, &cat, &filter);
+                let new_idx = items
+                    .iter()
+                    .position(|it| it.id_str == new_id)
+                    .unwrap_or(items.len().saturating_sub(1));
+                *cache.lock().unwrap() = items.clone();
+
+                let list_items: Vec<_> = items
+                    .into_iter()
+                    .map(|it| StandardListViewItem::from(SharedString::from(it.display)))
+                    .collect();
+
+                let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                    let slint_model = ModelRc::from(Rc::new(VecModel::from(list_items)));
+                    ui.set_editor_entries(slint_model);
+                    ui.set_editor_selected_idx(new_idx as i32);
+                    ui.invoke_select_editor_entry(new_idx as i32);
+                    ui.set_status_msg("New entry created.".into());
+                });
+            }
+            Err(e) => {
+                logger.log(&format!("[!] Error adding record: {}", e));
+            }
+        });
+    });
+
+    let ui_weak_dup = ui_handle.clone();
+    let cache_dup = editor_items_cache.clone();
+    let logger_dup = logger_base.clone();
+
+    ui.on_duplicate_editor_entry(move |cff_dir, category, idx, id_str| {
+        let dir = PathBuf::from(cff_dir.as_str());
+        let cat = category.to_string();
+        let ui_weak = ui_weak_dup.clone();
+        let cache = cache_dup.clone();
+        let logger = logger_dup.clone();
+        let id_s = id_str.to_string();
+
+        thread::spawn(
+            move || match cff::duplicate_editor_item(&dir, &cat, idx as usize, &id_s) {
+                Ok(new_id) => {
+                    logger.log(&format!("[+] Successfully duplicated record: {}", new_id));
+                    let filter = ui_weak
+                        .upgrade()
+                        .map(|ui| ui.get_editor_filter().to_string())
+                        .unwrap_or_default();
+                    let items = cff::load_editor_items(&dir, &cat, &filter);
+                    let new_idx = items
+                        .iter()
+                        .position(|it| it.id_str == new_id)
+                        .unwrap_or(items.len().saturating_sub(1));
+                    *cache.lock().unwrap() = items.clone();
+
+                    let list_items: Vec<_> = items
+                        .into_iter()
+                        .map(|it| StandardListViewItem::from(SharedString::from(it.display)))
+                        .collect();
+
+                    let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                        let slint_model = ModelRc::from(Rc::new(VecModel::from(list_items)));
+                        ui.set_editor_entries(slint_model);
+                        ui.set_editor_selected_idx(new_idx as i32);
+                        ui.invoke_select_editor_entry(new_idx as i32);
+                        ui.set_status_msg("Record duplicated.".into());
+                    });
+                }
+                Err(e) => {
+                    logger.log(&format!("[!] Error duplicating record: {}", e));
+                }
+            },
+        );
+    });
+
     // ---------------- LUA SCRIPTING CALLBACKS ----------------
     let logger_lua_dec = logger_base.clone();
     ui.on_decompile_lua(move |src, dst, luadec, resume| {

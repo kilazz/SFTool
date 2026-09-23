@@ -1331,7 +1331,7 @@ pub fn load_editor_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Ed
             }
         }
     } else {
-        // Localized Strings (Collapsed let-chain)
+        // Localized Strings (Cleaned up let-chain)
         let json_dir = cff_dir.join("texts_json");
         if let Ok(entries) = fs::read_dir(json_dir) {
             for entry in entries.filter_map(|e| e.ok()) {
@@ -1397,7 +1397,6 @@ pub fn save_editor_item(
             let chunk_path = cff_dir.join(&chunk.file);
             let mut bytes = fs::read(&chunk_path)?;
             let offset = index * 4;
-            // Cleaned up let-chain
             if offset + 4 <= bytes.len()
                 && let Ok(new_rel) = val1.parse::<u16>()
             {
@@ -1424,4 +1423,189 @@ pub fn save_editor_item(
         }
     }
     Ok(())
+}
+
+pub fn add_editor_item(cff_dir: &Path, category: &str) -> io::Result<String> {
+    if category.contains("0x07DC") {
+        let manifest_path = cff_dir.join("manifest.json");
+        let m_str = fs::read_to_string(manifest_path)?;
+        let manifest: Manifest = serde_json::from_str(&m_str)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+        if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC) {
+            let chunk_path = cff_dir.join(&chunk.file);
+            let mut bytes = if chunk_path.exists() {
+                fs::read(&chunk_path)?
+            } else {
+                Vec::new()
+            };
+
+            let mut max_id = 0u16;
+            let num_records = bytes.len() / 69;
+            for i in 0..num_records {
+                let id = Cursor::new(&bytes[i * 69..i * 69 + 2])
+                    .read_u16::<LittleEndian>()
+                    .unwrap_or(0);
+                max_id = max_id.max(id);
+            }
+            let new_id = max_id.saturating_add(1);
+
+            let mut record = vec![0u8; 69];
+            record[0..2].copy_from_slice(&new_id.to_le_bytes());
+            record[2] = 1; // Default flag
+            let default_mesh = encode_windows("ui_item_new_asset");
+            let len = default_mesh.len().min(63);
+            record[3..3 + len].copy_from_slice(&default_mesh[..len]);
+
+            bytes.extend_from_slice(&record);
+            File::create(chunk_path)?.write_all(&bytes)?;
+            return Ok(new_id.to_string());
+        }
+    } else if category.contains("0x07E2") {
+        let manifest_path = cff_dir.join("manifest.json");
+        let m_str = fs::read_to_string(manifest_path)?;
+        let manifest: Manifest = serde_json::from_str(&m_str)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+        if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E2) {
+            let chunk_path = cff_dir.join(&chunk.file);
+            let mut bytes = if chunk_path.exists() {
+                fs::read(&chunk_path)?
+            } else {
+                Vec::new()
+            };
+
+            let mut max_id = 0u16;
+            let num_records = bytes.len() / 4;
+            for i in 0..num_records {
+                let id = Cursor::new(&bytes[i * 4..i * 4 + 2])
+                    .read_u16::<LittleEndian>()
+                    .unwrap_or(0);
+                max_id = max_id.max(id);
+            }
+            let new_id = max_id.saturating_add(1);
+
+            let mut record = vec![0u8; 4];
+            record[0..2].copy_from_slice(&new_id.to_le_bytes());
+            record[2..4].copy_from_slice(&0u16.to_le_bytes());
+
+            bytes.extend_from_slice(&record);
+            File::create(chunk_path)?.write_all(&bytes)?;
+            return Ok(new_id.to_string());
+        }
+    } else {
+        // Localized Strings
+        let json_dir = cff_dir.join("texts_json");
+        if let Ok(entries) = fs::read_dir(json_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("json")
+                    && !path.to_string_lossy().ends_with(".meta.json")
+                {
+                    let fname = path.file_stem().unwrap().to_string_lossy().to_string();
+                    let mut map: BTreeMap<String, String> =
+                        serde_json::from_str(&fs::read_to_string(&path)?).map_err(|e| {
+                            io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+                        })?;
+
+                    let new_key = format!("custom_str_{}", map.len() + 1);
+                    map.insert(new_key.clone(), "New Localized String".into());
+                    let f = File::create(&path)?;
+                    serde_json::to_writer_pretty(f, &map)?;
+
+                    return Ok(format!("{}:{}", fname, new_key));
+                }
+            }
+        }
+    }
+    Err(io::Error::other("Failed to create new record"))
+}
+
+pub fn duplicate_editor_item(
+    cff_dir: &Path,
+    category: &str,
+    index: usize,
+    id_str: &str,
+) -> io::Result<String> {
+    if category.contains("0x07DC") {
+        let manifest_path = cff_dir.join("manifest.json");
+        let m_str = fs::read_to_string(manifest_path)?;
+        let manifest: Manifest = serde_json::from_str(&m_str)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+        if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC) {
+            let chunk_path = cff_dir.join(&chunk.file);
+            let mut bytes = fs::read(&chunk_path)?;
+            let offset = index * 69;
+            if offset + 69 <= bytes.len() {
+                let mut max_id = 0u16;
+                let num_records = bytes.len() / 69;
+                for i in 0..num_records {
+                    let id = Cursor::new(&bytes[i * 69..i * 69 + 2])
+                        .read_u16::<LittleEndian>()
+                        .unwrap_or(0);
+                    max_id = max_id.max(id);
+                }
+                let new_id = max_id.saturating_add(1);
+
+                let mut cloned = bytes[offset..offset + 69].to_vec();
+                cloned[0..2].copy_from_slice(&new_id.to_le_bytes());
+
+                bytes.extend_from_slice(&cloned);
+                File::create(chunk_path)?.write_all(&bytes)?;
+                return Ok(new_id.to_string());
+            }
+        }
+    } else if category.contains("0x07E2") {
+        let manifest_path = cff_dir.join("manifest.json");
+        let m_str = fs::read_to_string(manifest_path)?;
+        let manifest: Manifest = serde_json::from_str(&m_str)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+        if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E2) {
+            let chunk_path = cff_dir.join(&chunk.file);
+            let mut bytes = fs::read(&chunk_path)?;
+            let offset = index * 4;
+            if offset + 4 <= bytes.len() {
+                let mut max_id = 0u16;
+                let num_records = bytes.len() / 4;
+                for i in 0..num_records {
+                    let id = Cursor::new(&bytes[i * 4..i * 4 + 2])
+                        .read_u16::<LittleEndian>()
+                        .unwrap_or(0);
+                    max_id = max_id.max(id);
+                }
+                let new_id = max_id.saturating_add(1);
+
+                let mut cloned = bytes[offset..offset + 4].to_vec();
+                cloned[0..2].copy_from_slice(&new_id.to_le_bytes());
+
+                bytes.extend_from_slice(&cloned);
+                File::create(chunk_path)?.write_all(&bytes)?;
+                return Ok(new_id.to_string());
+            }
+        }
+    } else {
+        // Localized Strings Duplicate
+        let parts: Vec<&str> = id_str.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            let fname = format!("{}.json", parts[0]);
+            let key = parts[1];
+            let json_path = cff_dir.join("texts_json").join(fname);
+            if json_path.exists() {
+                let mut map: BTreeMap<String, String> =
+                    serde_json::from_str(&fs::read_to_string(&json_path)?)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+                let original_val = map.get(key).cloned().unwrap_or_default();
+                let new_key = format!("{}_copy", key);
+                map.insert(new_key.clone(), original_val);
+                let f = File::create(json_path)?;
+                serde_json::to_writer_pretty(f, &map)?;
+
+                return Ok(format!("{}:{}", parts[0], new_key));
+            }
+        }
+    }
+    Err(io::Error::other("Failed to duplicate record"))
 }
