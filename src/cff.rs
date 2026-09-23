@@ -11,6 +11,89 @@ use std::io::{self, Cursor, Read, Write};
 use std::path::Path;
 
 // -----------------------------------------------------------------------------
+// KNOWN SF1 CHUNK DEFINITIONS & VALIDATION
+// -----------------------------------------------------------------------------
+
+pub struct Sf1ChunkInfo {
+    pub name: &'static str,
+    pub stride: usize,
+    pub default_c_type: i16,
+}
+
+pub fn get_sf1_chunk_info(id: u32) -> Option<Sf1ChunkInfo> {
+    match id {
+        0x07DC => Some(Sf1ChunkInfo {
+            name: "2dGfxItems",
+            stride: 69,
+            default_c_type: 1,
+        }),
+        0x07E1 => Some(Sf1ChunkInfo {
+            name: "SpellMultiMap",
+            stride: 6,
+            default_c_type: 1,
+        }),
+        0x07E2 => Some(Sf1ChunkInfo {
+            name: "SpellsBiMap",
+            stride: 4,
+            default_c_type: 1,
+        }),
+        0x07F7 => Some(Sf1ChunkInfo {
+            name: "TextDialogueMap",
+            stride: 4,
+            default_c_type: 1,
+        }),
+        0x07FC => Some(Sf1ChunkInfo {
+            name: "TypeCategoryMap",
+            stride: 3,
+            default_c_type: 1,
+        }),
+        0x07FF => Some(Sf1ChunkInfo {
+            name: "EntityLinkMap",
+            stride: 5,
+            default_c_type: 1,
+        }),
+        0x0800 => Some(Sf1ChunkInfo {
+            name: "ComplexProperties",
+            stride: 15,
+            default_c_type: 3,
+        }), // Mandatory c_type == 3!
+        0x0801 => Some(Sf1ChunkInfo {
+            name: "WordValuesArray",
+            stride: 2,
+            default_c_type: 1,
+        }),
+        0x080A => Some(Sf1ChunkInfo {
+            name: "LocalizedStringIds",
+            stride: 4,
+            default_c_type: 1,
+        }),
+        0x080B => Some(Sf1ChunkInfo {
+            name: "AudioSpeechParams",
+            stride: 6,
+            default_c_type: 1,
+        }),
+        0x080E => Some(Sf1ChunkInfo {
+            name: "CompoundKeyTable",
+            stride: 9,
+            default_c_type: 1,
+        }),
+        0x0818 => Some(Sf1ChunkInfo {
+            name: "SystemLookupMap",
+            stride: 4,
+            default_c_type: 1,
+        }),
+        _ => None,
+    }
+}
+
+pub fn get_sf2_chunk_name(id: u32) -> Option<&'static str> {
+    match id {
+        0x234E => Some("Abilities"),
+        _ => None,
+    }
+}
+
+// -----------------------------------------------------------------------------
 // MANIFEST STRUCTURES
 // -----------------------------------------------------------------------------
 
@@ -18,6 +101,8 @@ use std::path::Path;
 struct ChunkManifest {
     file: String,
     id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     flag1: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -69,9 +154,10 @@ pub fn decode_windows(bytes: &[u8]) -> String {
         return utf8_str.to_string();
     }
 
-    // Heuristic for Cyrillic: in CP1251, Russian characters fall in 0xC0..0xFF
+    // Heuristic for Cyrillic: in CP1251, characters fall in 0xC0..=0xFF.
+    // Short strings (<= 3 bytes, e.g. "г.", "в", "да") need only 1 hit.
     let cyrillic_hits = bytes.iter().filter(|&&b| b >= 0xC0).count();
-    if cyrillic_hits >= 2 {
+    if cyrillic_hits >= 2 || (!bytes.is_empty() && bytes.len() <= 3 && cyrillic_hits >= 1) {
         let (cow, _, had_errors) = WINDOWS_1251.decode(bytes);
         if !had_errors {
             return cow.into_owned();
@@ -773,10 +859,13 @@ pub fn unpack_all(input: &Path, out_dir: &Path, logger: &UiLogger) -> io::Result
                 uncomp_data
             };
 
+            let name = get_sf1_chunk_info(id).map(|info| info.name.to_string());
+
             (
                 ChunkManifest {
                     file: format!("chunk_{}.dat", chunk_idx),
                     id,
+                    name,
                     flag1: None,
                     flag2: None,
                     occurrence: Some(occurrence),
@@ -812,10 +901,13 @@ pub fn unpack_all(input: &Path, out_dir: &Path, logger: &UiLogger) -> io::Result
                 uncomp_data = comp_data;
             }
 
+            let name = get_sf2_chunk_name(id).map(|s| s.to_string());
+
             (
                 ChunkManifest {
                     file: format!("chunk_{}.dat", chunk_idx),
                     id,
+                    name,
                     flag1: Some(flag1),
                     flag2: Some(flag2),
                     occurrence: None,
@@ -902,12 +994,13 @@ pub fn pack_all(
         File::open(header_path)?.read_to_end(&mut header)?;
         out.write_all(&header)?;
     } else if fmt_type == "sf1" {
-        // Raw bytes for original SF1 CFF signature
+        // Raw bytes for original SF1 CFF signature + 16 null bytes
         out.write_all(b"\x02\xc5\x72\xdd")?;
         out.write_all(&[0u8; 16])?;
     } else {
-        out.write_all(b"\x12\xdd\x72\xdd")?;
-        out.write_all(&[0u8; 16])?;
+        // SF2 Container: Magic 0xDD72DD12, Version 3 (0x00000003), 12 reserved zero bytes
+        out.write_all(b"\x12\xdd\x72\xdd\x03\x00\x00\x00")?;
+        out.write_all(&[0u8; 12])?;
     }
 
     for (idx, chunk) in manifest.chunks.into_iter().enumerate() {
@@ -923,9 +1016,26 @@ pub fn pack_all(
         File::open(chunk_path)?.read_to_end(&mut uncomp_data)?;
 
         if fmt_type == "sf1" {
+            // SF1 Validation & Stride Check (Cleaned up let-chain)
+            if let Some(info) = get_sf1_chunk_info(chunk.id)
+                && !uncomp_data.is_empty()
+                && uncomp_data.len() % info.stride != 0
+            {
+                logger.log(&format!(
+                    "[!] Warning: Chunk 0x{:04X} ({}) length {} is not divisible by expected stride {}! May crash in engine.",
+                    chunk.id, info.name, uncomp_data.len(), info.stride
+                ));
+            }
+
             let comp_flag = chunk.comp_flag.unwrap_or(1);
             let occurrence = chunk.occurrence.unwrap_or(0);
-            let c_type = chunk.c_type.unwrap_or(0);
+
+            // Ensure c_type == 3 for 0x0800, otherwise use default or explicit value
+            let c_type = chunk.c_type.unwrap_or_else(|| {
+                get_sf1_chunk_info(chunk.id)
+                    .map(|i| i.default_c_type)
+                    .unwrap_or(1)
+            });
 
             if comp_flag == 0 {
                 out.write_i16::<LittleEndian>(chunk.id as i16)?;
@@ -962,5 +1072,356 @@ pub fn pack_all(
     }
 
     logger.log("CFF container successfully packed and finalized!");
+    Ok(())
+}
+
+// -----------------------------------------------------------------------------
+// CFF MOD CONFLICT RESOLVER: DIFF & PATCH ENGINE
+// -----------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize)]
+pub struct CffModPatch {
+    pub patch_name: String,
+    pub target_format: String,
+    pub text_diffs: BTreeMap<String, BTreeMap<String, String>>, // filename -> (key -> new_value)
+    pub chunk_diffs: BTreeMap<String, Vec<u8>>,                 // filename -> full binary data
+}
+
+pub fn create_diff(
+    base_dir: &Path,
+    mod_dir: &Path,
+    patch_out: &Path,
+    logger: &UiLogger,
+) -> io::Result<()> {
+    logger.log(&format!(
+        "[*] Generating CFF Diff Patch: {:?} vs {:?}",
+        base_dir, mod_dir
+    ));
+
+    let base_manifest_path = base_dir.join("manifest.json");
+    let mod_manifest_path = mod_dir.join("manifest.json");
+
+    if !base_manifest_path.exists() || !mod_manifest_path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "manifest.json must exist in both base and mod directories!",
+        ));
+    }
+
+    let base_m: Manifest = serde_json::from_str(&fs::read_to_string(base_manifest_path)?)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    let mod_m: Manifest = serde_json::from_str(&fs::read_to_string(mod_manifest_path)?)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+    let mut text_diffs = BTreeMap::new();
+    let base_json_dir = base_dir.join("texts_json");
+    let mod_json_dir = mod_dir.join("texts_json");
+
+    if mod_json_dir.exists() {
+        for entry in fs::read_dir(&mod_json_dir)?.filter_map(|e| e.ok()) {
+            let mod_file = entry.path();
+            if mod_file.extension().and_then(|s| s.to_str()) == Some("json")
+                && !mod_file.to_string_lossy().ends_with(".meta.json")
+            {
+                let fname = mod_file.file_name().unwrap().to_string_lossy().to_string();
+                let base_file = base_json_dir.join(&fname);
+
+                let mod_map: BTreeMap<String, String> =
+                    serde_json::from_str(&fs::read_to_string(&mod_file)?).unwrap_or_default();
+
+                let base_map: BTreeMap<String, String> = if base_file.exists() {
+                    serde_json::from_str(&fs::read_to_string(&base_file)?).unwrap_or_default()
+                } else {
+                    BTreeMap::new()
+                };
+
+                let mut diff_for_file = BTreeMap::new();
+                for (k, v) in mod_map {
+                    if base_map.get(&k) != Some(&v) {
+                        diff_for_file.insert(k, v);
+                    }
+                }
+
+                if !diff_for_file.is_empty() {
+                    logger.log(&format!(
+                        "[+] Found {} changed strings in {}",
+                        diff_for_file.len(),
+                        fname
+                    ));
+                    text_diffs.insert(fname, diff_for_file);
+                }
+            }
+        }
+    }
+
+    let mut chunk_diffs = BTreeMap::new();
+    for chunk in mod_m.chunks {
+        let mod_chunk_path = mod_dir.join(&chunk.file);
+        let base_chunk_path = base_dir.join(&chunk.file);
+
+        if mod_chunk_path.exists() {
+            let mod_bytes = fs::read(&mod_chunk_path)?;
+            let is_different = if base_chunk_path.exists() {
+                let base_bytes = fs::read(&base_chunk_path)?;
+                base_bytes != mod_bytes
+            } else {
+                true
+            };
+
+            if is_different {
+                logger.log(&format!("[+] Found modified chunk data: {}", chunk.file));
+                chunk_diffs.insert(chunk.file, mod_bytes);
+            }
+        }
+    }
+
+    let patch = CffModPatch {
+        patch_name: patch_out
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
+        target_format: base_m.format,
+        text_diffs,
+        chunk_diffs,
+    };
+
+    let f = File::create(patch_out)?;
+    serde_json::to_writer_pretty(f, &patch)?;
+
+    logger.log(&format!(
+        "[+] Diff patch successfully generated! Text files changed: {}, Chunks changed: {}",
+        patch.text_diffs.len(),
+        patch.chunk_diffs.len()
+    ));
+    Ok(())
+}
+
+pub fn apply_patch(target_dir: &Path, patch_path: &Path, logger: &UiLogger) -> io::Result<()> {
+    logger.log(&format!(
+        "[*] Applying CFF Patch: {:?} -> {:?}",
+        patch_path, target_dir
+    ));
+
+    let patch_str = fs::read_to_string(patch_path)?;
+    let patch: CffModPatch = serde_json::from_str(&patch_str)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+    // 1. Apply Text Diffs (Non-destructive key-level merge)
+    let json_dir = target_dir.join("texts_json");
+    fs::create_dir_all(&json_dir)?;
+
+    let mut merged_strings = 0;
+    for (fname, diffs) in patch.text_diffs {
+        let target_file = json_dir.join(&fname);
+        let mut target_map: BTreeMap<String, String> = if target_file.exists() {
+            serde_json::from_str(&fs::read_to_string(&target_file)?).unwrap_or_default()
+        } else {
+            BTreeMap::new()
+        };
+
+        for (k, v) in diffs {
+            target_map.insert(k, v);
+            merged_strings += 1;
+        }
+
+        let f = File::create(&target_file)?;
+        serde_json::to_writer_pretty(f, &target_map)?;
+    }
+
+    // 2. Apply Modified Binary Chunks
+    for (fname, data) in patch.chunk_diffs {
+        let chunk_target = target_dir.join(&fname);
+        File::create(&chunk_target)?.write_all(&data)?;
+    }
+
+    logger.log(&format!(
+        "[+] Patch successfully applied! Merged {} localized strings without conflicts.",
+        merged_strings
+    ));
+    Ok(())
+}
+
+// -----------------------------------------------------------------------------
+// INTERACTIVE ENTITY / BALANCE EDITOR ENGINE
+// -----------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct EditorItem {
+    pub id_str: String,
+    pub val1: String,
+    pub val2: String,
+    pub display: String,
+}
+
+pub fn load_editor_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<EditorItem> {
+    let mut items = Vec::new();
+    let filter_lower = filter.to_lowercase();
+
+    if category.contains("0x07DC") {
+        // 2D Gfx Items (69-byte records)
+        let manifest_path = cff_dir.join("manifest.json");
+        if let Ok(m_str) = fs::read_to_string(manifest_path)
+            && let Ok(manifest) = serde_json::from_str::<Manifest>(&m_str)
+            && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC)
+        {
+            let chunk_path = cff_dir.join(&chunk.file);
+            if let Ok(bytes) = fs::read(chunk_path) {
+                let num_records = bytes.len() / 69;
+                for i in 0..num_records {
+                    let offset = i * 69;
+                    let item_id = Cursor::new(&bytes[offset..offset + 2])
+                        .read_u16::<LittleEndian>()
+                        .unwrap_or(0);
+                    let flag = bytes[offset + 2];
+                    let mesh_bytes = &bytes[offset + 3..offset + 67];
+                    let mesh_end = mesh_bytes
+                        .iter()
+                        .position(|&b| b == 0)
+                        .unwrap_or(mesh_bytes.len());
+                    let mesh_name = decode_windows(&mesh_bytes[..mesh_end]);
+                    let extra = Cursor::new(&bytes[offset + 67..offset + 69])
+                        .read_u16::<LittleEndian>()
+                        .unwrap_or(0);
+
+                    let display = format!("ID: {:<5} | Mesh: {}", item_id, mesh_name);
+                    if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
+                        items.push(EditorItem {
+                            id_str: item_id.to_string(),
+                            val1: mesh_name,
+                            val2: format!("Flag: {}, Extra: {}", flag, extra),
+                            display,
+                        });
+                    }
+                }
+            }
+        }
+    } else if category.contains("0x07E2") {
+        // Spells BiMap (4-byte records)
+        let manifest_path = cff_dir.join("manifest.json");
+        if let Ok(m_str) = fs::read_to_string(manifest_path)
+            && let Ok(manifest) = serde_json::from_str::<Manifest>(&m_str)
+            && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E2)
+        {
+            let chunk_path = cff_dir.join(&chunk.file);
+            if let Ok(bytes) = fs::read(chunk_path) {
+                let num_records = bytes.len() / 4;
+                for i in 0..num_records {
+                    let offset = i * 4;
+                    let spell_id = Cursor::new(&bytes[offset..offset + 2])
+                        .read_u16::<LittleEndian>()
+                        .unwrap_or(0);
+                    let related_id = Cursor::new(&bytes[offset + 2..offset + 4])
+                        .read_u16::<LittleEndian>()
+                        .unwrap_or(0);
+
+                    let display = format!(
+                        "Spell ID: {:<5} -> Target/Scroll ID: {}",
+                        spell_id, related_id
+                    );
+                    if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
+                        items.push(EditorItem {
+                            id_str: spell_id.to_string(),
+                            val1: related_id.to_string(),
+                            val2: "BiMap Entry".into(),
+                            display,
+                        });
+                    }
+                }
+            }
+        }
+    } else {
+        // Localized Strings (Collapsed let-chain)
+        let json_dir = cff_dir.join("texts_json");
+        if let Ok(entries) = fs::read_dir(json_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("json")
+                    && !path.to_string_lossy().ends_with(".meta.json")
+                    && let Ok(content) = fs::read_to_string(&path)
+                    && let Ok(map) = serde_json::from_str::<BTreeMap<String, String>>(&content)
+                {
+                    let fname = path.file_stem().unwrap().to_string_lossy().to_string();
+                    for (k, v) in map {
+                        let display = format!("[{}] {} = {}", fname, k, v);
+                        if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
+                            items.push(EditorItem {
+                                id_str: format!("{}:{}", fname, k),
+                                val1: v,
+                                val2: fname.clone(),
+                                display,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    items
+}
+
+pub fn save_editor_item(
+    cff_dir: &Path,
+    category: &str,
+    index: usize,
+    id_str: &str,
+    val1: &str,
+    _val2: &str,
+) -> io::Result<()> {
+    if category.contains("0x07DC") {
+        let manifest_path = cff_dir.join("manifest.json");
+        let m_str = fs::read_to_string(manifest_path)?;
+        let manifest: Manifest = serde_json::from_str(&m_str)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+        if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC) {
+            let chunk_path = cff_dir.join(&chunk.file);
+            let mut bytes = fs::read(&chunk_path)?;
+            let offset = index * 69;
+            if offset + 69 <= bytes.len() {
+                let enc_mesh = encode_windows(val1);
+                let mut padded_mesh = vec![0u8; 64];
+                let len = enc_mesh.len().min(63);
+                padded_mesh[..len].copy_from_slice(&enc_mesh[..len]);
+                bytes[offset + 3..offset + 67].copy_from_slice(&padded_mesh);
+                File::create(chunk_path)?.write_all(&bytes)?;
+            }
+        }
+    } else if category.contains("0x07E2") {
+        let manifest_path = cff_dir.join("manifest.json");
+        let m_str = fs::read_to_string(manifest_path)?;
+        let manifest: Manifest = serde_json::from_str(&m_str)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+        if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E2) {
+            let chunk_path = cff_dir.join(&chunk.file);
+            let mut bytes = fs::read(&chunk_path)?;
+            let offset = index * 4;
+            // Cleaned up let-chain
+            if offset + 4 <= bytes.len()
+                && let Ok(new_rel) = val1.parse::<u16>()
+            {
+                let mut cur = Cursor::new(&mut bytes[offset + 2..offset + 4]);
+                cur.write_u16::<LittleEndian>(new_rel)?;
+                File::create(chunk_path)?.write_all(&bytes)?;
+            }
+        }
+    } else {
+        // Localized Strings
+        let parts: Vec<&str> = id_str.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            let fname = format!("{}.json", parts[0]);
+            let key = parts[1];
+            let json_path = cff_dir.join("texts_json").join(fname);
+            if json_path.exists() {
+                let mut map: BTreeMap<String, String> =
+                    serde_json::from_str(&fs::read_to_string(&json_path)?)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+                map.insert(key.to_string(), val1.to_string());
+                let f = File::create(json_path)?;
+                serde_json::to_writer_pretty(f, &map)?;
+            }
+        }
+    }
     Ok(())
 }

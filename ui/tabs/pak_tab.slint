@@ -1,0 +1,252 @@
+// ui/tabs/pak_tab.slint
+
+import {
+    LineEdit,
+    ComboBox,
+    SpinBox,
+    ListView,
+    ScrollView,
+    StandardListView,
+} from "std-widgets.slint";
+import { CustomButton } from "../components/buttons.slint";
+import { PanelSection, FormRow } from "../components/common.slint";
+
+export component PakTab inherits HorizontalLayout {
+    in-out property <length> sidebar_width: 420px;
+
+    in-out property <string> selected_pak: "";
+    in-out property <string> selected_folder: "";
+    in-out property <string> persisted_pak_fmt: "SpellForce 1 (.pak)";
+    in-out property <int> persisted_pak_comp: 6;
+    in-out property <[StandardListViewItem]> archive_files: [];
+
+    callback browse_file(string) -> string;
+    callback browse_folder() -> string;
+    callback save_file(string) -> string;
+
+    callback unpack_pak(string, string);
+    callback pack_pak(string, string, string, int);
+    callback batch_unpack_pak(string);
+    callback batch_pack_pak(string, string, int);
+    callback archive_item_clicked(int);
+
+    spacing: 0px;
+
+    // LEFT CONFIG PANEL
+    Rectangle {
+        width: root.sidebar_width;
+        background: #2b2d31;
+        border-color: #1f2023;
+        border-width: 1px;
+        border-radius: 4px;
+
+        ScrollView {
+            VerticalLayout {
+                padding: 12px;
+                spacing: 12px;
+                alignment: start;
+
+                PanelSection {
+                    title: "Archive Extraction";
+                    VerticalLayout {
+                        spacing: 6px;
+                        FormRow {
+                            title: "Target:";
+                            HorizontalLayout {
+                                spacing: 4px;
+                                LineEdit {
+                                    text <=> root.selected_pak;
+                                    placeholder-text: "Path to .PAK archive...";
+                                    height: 28px;
+                                    font-family: "Consolas";
+                                    font-size: 11px;
+                                }
+
+                                CustomButton {
+                                    text: "...";
+                                    compact: true;
+                                    width: 30px;
+                                    height: 28px;
+                                    clicked => { root.selected_pak = root.browse_file("pak"); }
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 6px;
+                            padding-top: 2px;
+                            CustomButton {
+                                text: "Extract All";
+                                enabled: root.selected_pak != "";
+                                primary-color: #3e6a90;
+                                clicked => {
+                                    let out_p = root.browse_folder();
+                                    if (out_p != "") { root.unpack_pak(root.selected_pak, out_p); }
+                                }
+                            }
+
+                            CustomButton {
+                                text: "Batch Unpack...";
+                                primary-color: #4e5058;
+                                clicked => {
+                                    let f = root.browse_folder();
+                                    if (f != "") { root.batch_unpack_pak(f); }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                PanelSection {
+                    title: "Archive Compilation";
+                    VerticalLayout {
+                        spacing: 6px;
+                        FormRow {
+                            title: "Source:";
+                            HorizontalLayout {
+                                spacing: 4px;
+                                LineEdit {
+                                    text <=> root.selected_folder;
+                                    placeholder-text: "Directory to pack...";
+                                    height: 28px;
+                                    font-family: "Consolas";
+                                    font-size: 11px;
+                                }
+
+                                CustomButton {
+                                    text: "...";
+                                    compact: true;
+                                    width: 30px;
+                                    height: 28px;
+                                    clicked => { root.selected_folder = root.browse_folder(); }
+                                }
+                            }
+                        }
+
+                        FormRow {
+                            title: "Engine:";
+                            ComboBox {
+                                model: ["SpellForce 1 (.pak)", "SpellForce 2 (.pak)"];
+                                current-value <=> root.persisted_pak_fmt;
+                                height: 28px;
+                            }
+                        }
+
+                        if root.persisted_pak_fmt != "SpellForce 1 (.pak)": FormRow {
+                            title: "Zlib Level:";
+                            SpinBox {
+                                value <=> root.persisted_pak_comp;
+                                minimum: 0;
+                                maximum: 9;
+                                height: 28px;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 6px;
+                            padding-top: 2px;
+                            CustomButton {
+                                text: "Pack to .PAK";
+                                enabled: root.selected_folder != "";
+                                primary-color: #23a55a;
+                                clicked => {
+                                    let target = root.save_file("pak");
+                                    if (target != "") { root.pack_pak(root.selected_folder, target, root.persisted_pak_fmt, root.persisted_pak_comp); }
+                                }
+                            }
+
+                            CustomButton {
+                                text: "Batch Pack...";
+                                primary-color: #4e5058;
+                                clicked => {
+                                    let f = root.browse_folder();
+                                    if (f != "") { root.batch_pack_pak(f, root.persisted_pak_fmt, root.persisted_pak_comp); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // DRAGGABLE SPLITTER
+    Rectangle {
+        width: 8px;
+        background: splitter-ta.has-hover ? #474747 : #181818;
+
+        Rectangle {
+            width: 2px;
+            height: 24px;
+            background: #808080;
+            border-radius: 1px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+        }
+
+        splitter-ta := TouchArea {
+            mouse-cursor: col-resize;
+            moved => {
+                if self.pressed {
+                    root.sidebar_width = (root.sidebar_width + self.mouse-x - self.pressed-x).clamp(340px, 680px);
+                }
+            }
+        }
+    }
+
+    // RIGHT TREE/LIST VIEW
+    Rectangle {
+        horizontal-stretch: 1;
+        background: #2b2d31;
+        border-color: #1f2023;
+        border-width: 1px;
+        border-radius: 4px;
+        clip: true;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+
+            Text {
+                text: "Archive VFS Tree Listing (" + root.archive_files.length + " items)";
+                font-size: 12px;
+                font-weight: 700;
+                color: #949ba4;
+                vertical-alignment: center;
+            }
+
+            Rectangle {
+                background: #111214;
+                border-color: #1f2023;
+                border-width: 1px;
+                border-radius: 4px;
+                vertical-stretch: 1;
+                clip: true;
+
+                ListView {
+                    for item[index] in root.archive_files: Rectangle {
+                        height: 24px;
+                        background: ta_arc.has-hover ? #2c3e50 : (Math.mod(index, 2) == 0 ? #18191b : #141517);
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            Text {
+                                text: item.text;
+                                color: #ffffff;
+                                font-family: "Consolas";
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        ta_arc := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.archive_item_clicked(index); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,260 @@
+// ui/tabs/editor_tab.slint
+
+import {
+    LineEdit,
+    ComboBox,
+    ListView,
+    ScrollView,
+    StandardListView,
+} from "std-widgets.slint";
+import { CustomButton } from "../components/buttons.slint";
+import {
+    SectionTitle,
+    PanelSection,
+    FormRow,
+} from "../components/common.slint";
+
+export component EditorTab inherits HorizontalLayout {
+    in-out property <length> sidebar_width: 420px;
+
+    in-out property <string> editor_cff_dir: "";
+    in-out property <string> editor_filter: "";
+    in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
+    in-out property <[StandardListViewItem]> editor_entries: [];
+    in-out property <int> editor_selected_idx: -1;
+    in-out property <string> editor_field_id: "";
+    in-out property <string> editor_field_val1: "";
+    in-out property <string> editor_field_val2: "";
+
+    callback browse_folder() -> string;
+    callback load_editor_data(string, string);
+    callback select_editor_entry(int);
+    callback save_editor_entry(string, string, int, string, string, string);
+
+    spacing: 0px;
+
+    Rectangle {
+        width: root.sidebar_width;
+        background: #2b2d31;
+        border-color: #1f2023;
+        border-width: 1px;
+        border-radius: 4px;
+
+        ScrollView {
+            VerticalLayout {
+                padding: 12px;
+                spacing: 12px;
+                alignment: start;
+
+                PanelSection {
+                    title: "Target Database";
+                    title-color: #f0b132;
+                    VerticalLayout {
+                        spacing: 6px;
+                        FormRow {
+                            title: "CFF Dir:";
+                            HorizontalLayout {
+                                spacing: 4px;
+                                LineEdit {
+                                    text <=> root.editor_cff_dir;
+                                    placeholder-text: "Select extracted CFF folder...";
+                                    height: 28px;
+                                    font-family: "Consolas";
+                                    font-size: 11px;
+                                }
+
+                                CustomButton {
+                                    text: "...";
+                                    compact: true;
+                                    width: 30px;
+                                    height: 28px;
+                                    clicked => {
+                                        let f = root.browse_folder();
+                                        if (f != "") {
+                                            root.editor_cff_dir = f;
+                                            root.load_editor_data(root.editor_cff_dir, root.editor_active_category);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        FormRow {
+                            title: "Category:";
+                            ComboBox {
+                                model: ["2D Gfx Items (0x07DC)", "Spells Mapping (0x07E2)", "Localized Strings"];
+                                current-value <=> root.editor_active_category;
+                                height: 28px;
+                                selected => {
+                                    root.load_editor_data(root.editor_cff_dir, root.editor_active_category);
+                                }
+                            }
+                        }
+
+                        FormRow {
+                            title: "Filter:";
+                            LineEdit {
+                                text <=> root.editor_filter;
+                                placeholder-text: "Search ID or name...";
+                                height: 28px;
+                                font-family: "Consolas";
+                                font-size: 11px;
+                                edited => { root.load_editor_data(root.editor_cff_dir, root.editor_active_category); }
+                            }
+                        }
+                    }
+                }
+
+                PanelSection {
+                    title: "Parsed Records List";
+                    VerticalLayout {
+                        spacing: 4px;
+                        Rectangle {
+                            height: 380px;
+                            background: #111214;
+                            border-color: #1f2023;
+                            border-width: 1px;
+                            border-radius: 4px;
+                            clip: true;
+
+                            ListView {
+                                for item[index] in root.editor_entries: Rectangle {
+                                    height: 26px;
+                                    background: ta_ed.has-hover ? #393c41 : (root.editor_selected_idx == index ? #2c3e50 : (Math.mod(index, 2) == 0 ? #191919 : #1c1c1c));
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        Text {
+                                            text: item.text;
+                                            color: root.editor_selected_idx == index ? #f0b132 : #dcddde;
+                                            font-family: "Consolas";
+                                            font-size: 11px;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                    }
+
+                                    ta_ed := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.editor_selected_idx = index;
+                                            root.select_editor_entry(index);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        width: 8px;
+        background: splitter-ta.has-hover ? #474747 : #181818;
+
+        Rectangle {
+            width: 2px;
+            height: 24px;
+            background: #808080;
+            border-radius: 1px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+        }
+
+        splitter-ta := TouchArea {
+            mouse-cursor: col-resize;
+            moved => {
+                if self.pressed {
+                    root.sidebar_width = (root.sidebar_width + self.mouse-x - self.pressed-x).clamp(340px, 680px);
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        horizontal-stretch: 1;
+        background: #2b2d31;
+        border-color: #1f2023;
+        border-width: 1px;
+        border-radius: 4px;
+        clip: true;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            SectionTitle {
+                text: "Entity Property & Mesh Linkage Inspector";
+                text-color: #f0b132;
+            }
+
+            FormRow {
+                title: "Record Key / ID:";
+                label-width: 120px;
+                LineEdit {
+                    text <=> root.editor_field_id;
+                    read-only: true;
+                    font-family: "Consolas";
+                    height: 28px;
+                }
+            }
+
+            FormRow {
+                title: "Resource / Val 1:";
+                label-width: 120px;
+                LineEdit {
+                    text <=> root.editor_field_val1;
+                    font-family: "Consolas";
+                    height: 28px;
+                }
+            }
+
+            FormRow {
+                title: "Extra / Val 2:";
+                label-width: 120px;
+                LineEdit {
+                    text <=> root.editor_field_val2;
+                    font-family: "Consolas";
+                    height: 28px;
+                }
+            }
+
+            CustomButton {
+                text: "Save Changes to Database Chunk (.dat)";
+                enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "";
+                primary-color: #23a55a;
+                clicked => {
+                    root.save_editor_entry(
+                        root.editor_cff_dir,
+                        root.editor_active_category,
+                        root.editor_selected_idx,
+                        root.editor_field_id,
+                        root.editor_field_val1,
+                        root.editor_field_val2);
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: #353535;
+            }
+
+            Text {
+                text: "Quick Guide:\n" +
+                    "• 2D Gfx Items: Links Item ID directly to visual mesh files ('ui_item_...msh').\n" +
+                    "• Spells Mapping: Configures bidirectional spell-to-scroll relations.\n" +
+                    "• Localized Strings: Updates translation texts across the entire database.\n\n" +
+                    "All modified chunks compile cleanly back into .CFF with verified DWORD alignment.";
+                color: #808080;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+
+            Rectangle {
+                vertical-stretch: 1;
+            }
+        }
+    }
+}

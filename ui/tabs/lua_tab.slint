@@ -1,0 +1,182 @@
+// ui/tabs/lua_tab.slint
+
+import { LineEdit, CheckBox, ScrollView } from "std-widgets.slint";
+import { CustomButton } from "../components/buttons.slint";
+import {
+    SectionTitle,
+    PanelSection,
+    FormRow,
+} from "../components/common.slint";
+
+export component LuaTab inherits HorizontalLayout {
+    in-out property <length> sidebar_width: 420px;
+
+    in-out property <string> lua_src_dir: "";
+    in-out property <string> lua_out_dir: "";
+    in-out property <string> luadec_path: "luadec_32_deb.exe";
+    in-out property <string> luac_path: "luac4.exe";
+    in-out property <bool> lua_resume: true;
+
+    callback browse_folder() -> string;
+    callback browse_file(string) -> string;
+    callback decompile_lua(string, string, string, bool);
+    callback check_lua_syntax(string, string);
+    callback format_lua_scripts(string, bool);
+
+    spacing: 0px;
+
+    Rectangle {
+        width: root.sidebar_width;
+        background: #2b2d31;
+        border-color: #1f2023;
+        border-width: 1px;
+        border-radius: 4px;
+
+        ScrollView {
+            VerticalLayout {
+                padding: 12px;
+                spacing: 12px;
+                alignment: start;
+
+                PanelSection {
+                    title: "Batch Decompiler (Lua 4.0 Bytecode)";
+                    VerticalLayout {
+                        spacing: 6px;
+                        FormRow {
+                            title: "Source:";
+                            HorizontalLayout {
+                                spacing: 4px;
+                                LineEdit {
+                                    text <=> root.lua_src_dir;
+                                    height: 28px;
+                                    font-family: "Consolas";
+                                    font-size: 11px;
+                                }
+
+                                CustomButton {
+                                    text: "...";
+                                    compact: true;
+                                    width: 30px;
+                                    height: 28px;
+                                    clicked => { root.lua_src_dir = root.browse_folder(); }
+                                }
+                            }
+                        }
+
+                        FormRow {
+                            title: "Dest:";
+                            HorizontalLayout {
+                                spacing: 4px;
+                                LineEdit {
+                                    text <=> root.lua_out_dir;
+                                    height: 28px;
+                                    font-family: "Consolas";
+                                    font-size: 11px;
+                                }
+
+                                CustomButton {
+                                    text: "...";
+                                    compact: true;
+                                    width: 30px;
+                                    height: 28px;
+                                    clicked => { root.lua_out_dir = root.browse_folder(); }
+                                }
+                            }
+                        }
+
+                        CheckBox {
+                            text: "Resume Existing (Skip decompiled)";
+                            checked <=> root.lua_resume;
+                        }
+
+                        CustomButton {
+                            text: "Decompile All Scripts";
+                            enabled: root.lua_src_dir != "" && root.lua_out_dir != "";
+                            primary-color: #23a55a;
+                            clicked => { root.decompile_lua(root.lua_src_dir, root.lua_out_dir, root.luadec_path, root.lua_resume); }
+                        }
+                    }
+                }
+
+                PanelSection {
+                    title: "Syntax & Formatting Tools";
+                    VerticalLayout {
+                        spacing: 6px;
+                        HorizontalLayout {
+                            spacing: 6px;
+                            CustomButton {
+                                text: "Check Syntax (luac4 -p)";
+                                enabled: root.lua_src_dir != "";
+                                primary-color: #4e5058;
+                                clicked => { root.check_lua_syntax(root.lua_src_dir, root.luac_path); }
+                            }
+
+                            CustomButton {
+                                text: "Beautify Source (Tabs)";
+                                enabled: root.lua_src_dir != "";
+                                primary-color: #3e6a90;
+                                clicked => { root.format_lua_scripts(root.lua_src_dir, true); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        width: 8px;
+        background: splitter-ta.has-hover ? #474747 : #181818;
+
+        Rectangle {
+            width: 2px;
+            height: 24px;
+            background: #808080;
+            border-radius: 1px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+        }
+
+        splitter-ta := TouchArea {
+            mouse-cursor: col-resize;
+            moved => {
+                if self.pressed {
+                    root.sidebar_width = (root.sidebar_width + self.mouse-x - self.pressed-x).clamp(340px, 680px);
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        horizontal-stretch: 1;
+        background: #2b2d31;
+        border-color: #1f2023;
+        border-width: 1px;
+        border-radius: 4px;
+        clip: true;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            SectionTitle {
+                text: "SpellForce Lua 4.0 Subsystem Overview";
+            }
+
+            Text {
+                text: "SpellForce 1 utilizes a customized, proprietary Lua 4.0.1 engine with custom opcodes.\n\n" +
+                    "• High-Performance Rayon Worker: Concurrently extracts and decompiles bytecode chunks.\n" +
+                    "• Multi-Threaded Validator: Executes 'luac4 -p' syntax sweeps across hundreds of campaign scripts.\n" +
+                    "• Code Formatter: Normalizes syntax and indentation to match original Phenomic source code.\n\n" +
+                    "View detailed progress and diagnostic reports directly in the Terminal Log tab.";
+                color: #949ba4;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+
+            Rectangle {
+                vertical-stretch: 1;
+            }
+        }
+    }
+}

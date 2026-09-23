@@ -1,0 +1,241 @@
+// ui/tabs/cff_tab.slint
+
+import {
+    LineEdit,
+    SpinBox,
+    ListView,
+    ScrollView,
+    StandardListView,
+} from "std-widgets.slint";
+import { CustomButton } from "../components/buttons.slint";
+import { PanelSection, FormRow } from "../components/common.slint";
+
+export component CffTab inherits HorizontalLayout {
+    in-out property <length> sidebar_width: 420px;
+
+    in-out property <string> selected_cff: "";
+    in-out property <string> selected_cff_dir: "";
+    in-out property <int> persisted_cff_comp: 6;
+    in-out property <[StandardListViewItem]> archive_files: [];
+
+    callback browse_file(string) -> string;
+    callback browse_folder() -> string;
+    callback save_file(string) -> string;
+
+    callback unpack_cff(string, string);
+    callback pack_cff(string, string, int);
+    callback create_cff_diff(string, string, string);
+    callback apply_cff_patch(string, string);
+    callback archive_item_clicked(int);
+
+    spacing: 0px;
+
+    Rectangle {
+        width: root.sidebar_width;
+        background: #2b2d31;
+        border-color: #1f2023;
+        border-width: 1px;
+        border-radius: 4px;
+
+        ScrollView {
+            VerticalLayout {
+                padding: 12px;
+                spacing: 12px;
+                alignment: start;
+
+                PanelSection {
+                    title: "Container Packaging";
+                    VerticalLayout {
+                        spacing: 6px;
+                        FormRow {
+                            title: "CFF File:";
+                            HorizontalLayout {
+                                spacing: 4px;
+                                LineEdit {
+                                    text <=> root.selected_cff;
+                                    placeholder-text: "Path to GameData.cff...";
+                                    height: 28px;
+                                    font-family: "Consolas";
+                                    font-size: 11px;
+                                }
+
+                                CustomButton {
+                                    text: "...";
+                                    compact: true;
+                                    width: 30px;
+                                    height: 28px;
+                                    clicked => { root.selected_cff = root.browse_file("cff"); }
+                                }
+                            }
+                        }
+
+                        CustomButton {
+                            text: "Unpack Database & Text JSONs";
+                            enabled: root.selected_cff != "";
+                            primary-color: #3e6a90;
+                            clicked => {
+                                let out_p = root.browse_folder();
+                                if (out_p != "") { root.unpack_cff(root.selected_cff, out_p); }
+                            }
+                        }
+
+                        FormRow {
+                            title: "Work Dir:";
+                            HorizontalLayout {
+                                spacing: 4px;
+                                LineEdit {
+                                    text <=> root.selected_cff_dir;
+                                    placeholder-text: "Extracted CFF folder...";
+                                    height: 28px;
+                                    font-family: "Consolas";
+                                    font-size: 11px;
+                                }
+
+                                CustomButton {
+                                    text: "...";
+                                    compact: true;
+                                    width: 30px;
+                                    height: 28px;
+                                    clicked => { root.selected_cff_dir = root.browse_folder(); }
+                                }
+                            }
+                        }
+
+                        FormRow {
+                            title: "Zlib Level:";
+                            SpinBox {
+                                value <=> root.persisted_cff_comp;
+                                minimum: 0;
+                                maximum: 9;
+                                height: 28px;
+                            }
+                        }
+
+                        CustomButton {
+                            text: "Compile JSONs & Pack to .CFF";
+                            enabled: root.selected_cff_dir != "";
+                            primary-color: #23a55a;
+                            clicked => {
+                                let target = root.save_file("cff");
+                                if (target != "") { root.pack_cff(root.selected_cff_dir, target, root.persisted_cff_comp); }
+                            }
+                        }
+                    }
+                }
+
+                PanelSection {
+                    title: "Mod Conflict Resolver (Diff & Patch Engine)";
+                    title-color: #f0b132;
+                    VerticalLayout {
+                        spacing: 6px;
+
+                        CustomButton {
+                            text: "Generate Diff Patch (Base vs Mod)...";
+                            primary-color: #4e5058;
+                            clicked => {
+                                let base_dir = root.browse_folder();
+                                if (base_dir != "") {
+                                    let mod_dir = root.browse_folder();
+                                    if (mod_dir != "") {
+                                        let patch_out = root.save_file("json");
+                                        if (patch_out != "") { root.create_cff_diff(base_dir, mod_dir, patch_out); }
+                                    }
+                                }
+                            }
+                        }
+
+                        CustomButton {
+                            text: "Apply Mod Patch to Working Dir...";
+                            primary-color: #3e6a90;
+                            clicked => {
+                                let patch_file = root.browse_file("json");
+                                if (patch_file != "") {
+                                    let target_dir = root.browse_folder();
+                                    if (target_dir != "") { root.apply_cff_patch(target_dir, patch_file); }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        width: 8px;
+        background: splitter-ta.has-hover ? #474747 : #181818;
+
+        Rectangle {
+            width: 2px;
+            height: 24px;
+            background: #808080;
+            border-radius: 1px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+        }
+
+        splitter-ta := TouchArea {
+            mouse-cursor: col-resize;
+            moved => {
+                if self.pressed {
+                    root.sidebar_width = (root.sidebar_width + self.mouse-x - self.pressed-x).clamp(340px, 680px);
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        horizontal-stretch: 1;
+        background: #2b2d31;
+        border-color: #1f2023;
+        border-width: 1px;
+        border-radius: 4px;
+        clip: true;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+
+            Text {
+                text: "Extracted Files / VFS View (" + root.archive_files.length + " entries)";
+                font-size: 12px;
+                font-weight: 700;
+                color: #949ba4;
+                vertical-alignment: center;
+            }
+
+            Rectangle {
+                background: #111214;
+                border-color: #1f2023;
+                border-width: 1px;
+                border-radius: 4px;
+                vertical-stretch: 1;
+                clip: true;
+
+                ListView {
+                    for item[index] in root.archive_files: Rectangle {
+                        height: 24px;
+                        background: ta_arc.has-hover ? #2c3e50 : (Math.mod(index, 2) == 0 ? #18191b : #141517);
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            Text {
+                                text: item.text;
+                                color: #ffffff;
+                                font-family: "Consolas";
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        ta_arc := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.archive_item_clicked(index); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -7,7 +7,7 @@ mod pak;
 
 use slint::{Model, ModelRc, SharedString, StandardListViewItem, VecModel};
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
@@ -36,7 +36,7 @@ fn make_cli_logger() -> (UiLogger, thread::JoinHandle<()>) {
 fn print_help() {
     println!(
         "\
-SFTool v2.0 - SpellForce Modding, Localization & Scripting Suite (CLI Mode)
+SFTool - SpellForce Modding, Localization & Scripting Suite (CLI Mode)
 Usage: SFTool <command> [arguments...]
 
 PAK & VFS Commands:
@@ -58,6 +58,12 @@ CFF Database Commands:
 
   pack_cff <in_dir> <out_cff> [compression_level: 0-9, default: 6]
       Import texts from JSON into chunks and compile into a CFF container.
+
+  create_diff <base_cff_dir> <mod_cff_dir> <out_patch.json>
+      Generate a non-destructive mod diff patch between base and modified databases.
+
+  apply_diff <target_cff_dir> <patch.json>
+      Apply and merge a mod diff patch into a target working database directory.
 
 Lua 4.0 Scripting Commands:
   decompile_lua <src_dir> <out_dir> [luadec_exe] [--no-resume]
@@ -103,6 +109,33 @@ fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             let comp = args.get(4).and_then(|s| s.parse::<u32>().ok()).unwrap_or(6);
             let (logger, handle) = make_cli_logger();
             cff::pack_all(&in_dir, &out_file, comp, &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+        "create_diff" => {
+            if args.len() < 5 {
+                eprintln!(
+                    "Usage: SFTool create_diff <base_cff_dir> <mod_cff_dir> <out_patch.json>"
+                );
+                return Ok(());
+            }
+            let (logger, handle) = make_cli_logger();
+            cff::create_diff(
+                Path::new(&args[2]),
+                Path::new(&args[3]),
+                Path::new(&args[4]),
+                &logger,
+            )?;
+            drop(logger);
+            let _ = handle.join();
+        }
+        "apply_diff" => {
+            if args.len() < 4 {
+                eprintln!("Usage: SFTool apply_diff <target_cff_dir> <patch.json>");
+                return Ok(());
+            }
+            let (logger, handle) = make_cli_logger();
+            cff::apply_patch(Path::new(&args[2]), Path::new(&args[3]), &logger)?;
             drop(logger);
             let _ = handle.join();
         }
@@ -417,7 +450,7 @@ fn run_gui() -> Result<(), slint::PlatformError> {
         });
     });
 
-    // ---------------- CFF OPERATIONS ----------------
+    // ---------------- CFF OPERATIONS & DIFF ENGINE ----------------
     let logger_cff_unpack = logger_base.clone();
     ui.on_unpack_cff(move |input, out| {
         let logger = logger_cff_unpack.clone();
@@ -452,6 +485,109 @@ fn run_gui() -> Result<(), slint::PlatformError> {
                 logger.log(&format!("[!] Error packing CFF: {}", e));
             } else {
                 logger.log("[+] CFF Pack cycle completed successfully.");
+            }
+        });
+    });
+
+    let logger_cff_diff = logger_base.clone();
+    ui.on_create_cff_diff(move |base_dir, mod_dir, out_patch| {
+        let logger = logger_cff_diff.clone();
+        let b = PathBuf::from(base_dir.as_str());
+        let m = PathBuf::from(mod_dir.as_str());
+        let p = PathBuf::from(out_patch.as_str());
+        thread::spawn(move || {
+            if let Err(e) = cff::create_diff(&b, &m, &p, &logger) {
+                logger.log(&format!("[!] Diff Generation Error: {}", e));
+            }
+        });
+    });
+
+    let logger_cff_apply = logger_base.clone();
+    ui.on_apply_cff_patch(move |target_dir, patch_file| {
+        let logger = logger_cff_apply.clone();
+        let t = PathBuf::from(target_dir.as_str());
+        let p = PathBuf::from(patch_file.as_str());
+        thread::spawn(move || {
+            if let Err(e) = cff::apply_patch(&t, &p, &logger) {
+                logger.log(&format!("[!] Patch Apply Error: {}", e));
+            }
+        });
+    });
+
+    // ---------------- BALANCE EDITOR CALLBACKS ----------------
+    let editor_items_cache = Arc::new(Mutex::new(Vec::<cff::EditorItem>::new()));
+    let ui_weak_ed = ui_handle.clone();
+    let cache_load = editor_items_cache.clone();
+
+    ui.on_load_editor_data(move |cff_dir, category| {
+        let dir = PathBuf::from(cff_dir.as_str());
+        let cat = category.to_string();
+        let ui_weak = ui_weak_ed.clone();
+        let cache = cache_load.clone();
+
+        thread::spawn(move || {
+            let filter = ui_weak
+                .upgrade()
+                .map(|ui| ui.get_editor_filter().to_string())
+                .unwrap_or_default();
+            let items = cff::load_editor_items(&dir, &cat, &filter);
+            *cache.lock().unwrap() = items.clone();
+
+            let list_items: Vec<_> = items
+                .into_iter()
+                .map(|it| StandardListViewItem::from(SharedString::from(it.display)))
+                .collect();
+
+            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                let slint_model = ModelRc::from(Rc::new(VecModel::from(list_items)));
+                ui.set_editor_entries(slint_model);
+                ui.set_status_msg("Loaded balance records.".into());
+            });
+        });
+    });
+
+    let ui_weak_sel = ui_handle.clone();
+    let cache_sel = editor_items_cache.clone();
+    ui.on_select_editor_entry(move |idx| {
+        let cache = cache_sel.lock().unwrap();
+        if let Some(item) = cache.get(idx as usize) {
+            let id = item.id_str.clone();
+            let val1 = item.val1.clone();
+            let val2 = item.val2.clone();
+            let _ = ui_weak_sel.upgrade_in_event_loop(move |ui| {
+                ui.set_editor_field_id(id.into());
+                ui.set_editor_field_val1(val1.into());
+                ui.set_editor_field_val2(val2.into());
+            });
+        }
+    });
+
+    let logger_ed_save = logger_base.clone();
+    let ui_weak_save = ui_handle.clone();
+    ui.on_save_editor_entry(move |cff_dir, category, idx, id_str, val1, val2| {
+        let dir = PathBuf::from(cff_dir.as_str());
+        let cat = category.to_string();
+        let logger = logger_ed_save.clone();
+        let ui_weak = ui_weak_save.clone();
+
+        thread::spawn(move || {
+            if let Err(e) = cff::save_editor_item(
+                &dir,
+                &cat,
+                idx as usize,
+                id_str.as_str(),
+                val1.as_str(),
+                val2.as_str(),
+            ) {
+                logger.log(&format!("[!] Editor Save Error: {}", e));
+            } else {
+                logger.log(&format!(
+                    "[+] Successfully updated entry: {}",
+                    id_str.as_str()
+                ));
+                let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                    ui.set_status_msg("Changes saved to disk.".into());
+                });
             }
         });
     });

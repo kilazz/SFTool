@@ -1,0 +1,56 @@
+// ui/components/common.slint
+
+export component SectionTitle {
+    in property <string> text;
+    in property <color> text-color: #949ba4;
+    height: 20px;
+
+    VerticalLayout {
+        spacing: 3px;
+        Text {
+            text: root.text;
+            font-size: 11px;
+            font-weight: 700;
+            color: root.text-color;
+            overflow: elide;
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #353535;
+        }
+    }
+}
+
+export component PanelSection {
+    in property <string> title;
+    in property <color> title-color: #949ba4;
+
+    VerticalLayout {
+        spacing: 6px;
+        SectionTitle {
+            text: root.title;
+            text-color: root.title-color;
+        }
+
+        @children
+    }
+}
+
+export component FormRow {
+    in property <string> title;
+    in property <length> label-width: 80px;
+
+    HorizontalLayout {
+        spacing: 6px;
+        Text {
+            text: root.title;
+            width: root.label-width;
+            vertical-alignment: center;
+            font-size: 11px;
+            color: #dcddde;
+        }
+
+        @children
+    }
+}

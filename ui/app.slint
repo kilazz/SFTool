@@ -1,50 +1,30 @@
-import {
-    LineEdit,
-    StandardListView,
-    ListView,
-    ComboBox,
-    SpinBox,
-    TextEdit,
-    CheckBox,
-} from "std-widgets.slint";
+// ui/app.slint
 
-component ToolButton inherits Rectangle {
-    in property <string> text;
-    in property <bool> enabled: true;
-    callback clicked;
+import { StandardListView } from "std-widgets.slint";
 
-    height: 35px;
-    background: !enabled ? #181818 : (ta.has-hover ? #3E3E42 : #252526);
-    border-color: !enabled ? #222222 : (ta.has-hover ? #555555 : #333333);
-    border-width: 1px;
-    border-radius: 4px;
+// IMPORT COMPONENTS
+import { TabButton } from "./components/buttons.slint";
 
-    Text {
-        text: root.text;
-        color: !root.enabled ? #555555 : (ta.has-hover ? #FFFFFF : #CCCCCC);
-        font-size: 13px;
-        font-weight: 600;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-        overflow: elide;
-        width: parent.width - 20px;
-    }
-
-    ta := TouchArea {
-        enabled: root.enabled;
-        clicked => { root.clicked(); }
-    }
-}
+// IMPORT MODULAR TABS
+import { PakTab } from "./tabs/pak_tab.slint";
+import { CffTab } from "./tabs/cff_tab.slint";
+import { EditorTab } from "./tabs/editor_tab.slint";
+import { InspectorTab } from "./tabs/inspector_tab.slint";
+import { LuaTab } from "./tabs/lua_tab.slint";
+import { LogTab } from "./tabs/log_tab.slint";
 
 export component AppWindow inherits Window {
-    title: "SFTool v2.0 - SpellForce Modding Suite";
-    min-width: 1040px;
-    min-height: 740px;
-    preferred-width: 1040px;
-    preferred-height: 740px;
-    background: #141414;
+    title: "SFTool v2.1 - SpellForce Modding & Balance Studio";
+    min-width: 1100px;
+    min-height: 760px;
+    preferred-width: 1140px;
+    preferred-height: 800px;
+    background: #181818;
 
     in-out property <int> active_tab: 0;
+
+    // --- Dynamic Sidebar Resizing ---
+    in-out property <length> sidebar_width: 420px;
 
     // --- PAK State ---
     in-out property <string> selected_pak: "";
@@ -57,6 +37,16 @@ export component AppWindow inherits Window {
     in-out property <string> selected_cff: "";
     in-out property <string> selected_cff_dir: "";
     in-out property <int> persisted_cff_comp: 6;
+
+    // --- Balance Editor State ---
+    in-out property <string> editor_cff_dir: "";
+    in-out property <string> editor_filter: "";
+    in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
+    in-out property <[StandardListViewItem]> editor_entries: [];
+    in-out property <int> editor_selected_idx: -1;
+    in-out property <string> editor_field_id: "";
+    in-out property <string> editor_field_val1: "";
+    in-out property <string> editor_field_val2: "";
 
     // --- Inspector State ---
     in-out property <string> selected_dat: "";
@@ -82,16 +72,23 @@ export component AppWindow inherits Window {
     callback browse_folder() -> string;
     callback save_file(string) -> string;
 
-    // Callbacks: PAK (mode removed)
+    // Callbacks: PAK
     callback unpack_pak(string, string);
     callback pack_pak(string, string, string, int);
     callback batch_unpack_pak(string);
     callback batch_pack_pak(string, string, int);
     callback archive_item_clicked(int);
 
-    // Callbacks: CFF
+    // Callbacks: CFF & Diff Engine
     callback unpack_cff(string, string);
     callback pack_cff(string, string, int);
+    callback create_cff_diff(string, string, string);
+    callback apply_cff_patch(string, string);
+
+    // Callbacks: Balance Editor
+    callback load_editor_data(string, string);
+    callback select_editor_entry(int);
+    callback save_editor_entry(string, string, int, string, string, string);
 
     // Callbacks: Inspector
     callback scan_binary(string, string);
@@ -105,701 +102,193 @@ export component AppWindow inherits Window {
     callback format_lua_scripts(string, bool);
 
     VerticalLayout {
-        padding: 15px;
-        spacing: 12px;
+        padding: 12px;
+        spacing: 10px;
 
-        // Navigation Bar
+        // TOP NAVIGATION TABS (Modular TabButtons)
         HorizontalLayout {
-            alignment: center;
-            spacing: 28px;
-            height: 35px;
+            spacing: 6px;
+            alignment: start;
+            height: 32px;
 
-            Text {
-                text: "PAK ARCHIVE";
-                font-size: 13px;
-                font-weight: root.active_tab == 0 ? 800 : 500;
-                color: root.active_tab == 0 ? #FFFFFF : #6F6F6F;
-                vertical-alignment: center;
-                TouchArea {
-                    clicked => { root.active_tab = 0; }
-                }
+            TabButton {
+                text: "PAK Archive";
+                active: root.active_tab == 0;
+                accent-color: #3e6a90;
+                clicked => { root.active_tab = 0; }
             }
 
-            Text {
-                text: "CFF DATABASE";
-                font-size: 13px;
-                font-weight: root.active_tab == 1 ? 800 : 500;
-                color: root.active_tab == 1 ? #FFFFFF : #6F6F6F;
-                vertical-alignment: center;
-                TouchArea {
-                    clicked => { root.active_tab = 1; }
-                }
+            TabButton {
+                text: "CFF Database";
+                active: root.active_tab == 1;
+                accent-color: #23a55a;
+                clicked => { root.active_tab = 1; }
             }
 
-            Text {
-                text: "CHUNK INSPECTOR";
-                font-size: 13px;
-                font-weight: root.active_tab == 2 ? 800 : 500;
-                color: root.active_tab == 2 ? #FFFFFF : #6F6F6F;
-                vertical-alignment: center;
-                TouchArea {
-                    clicked => { root.active_tab = 2; }
-                }
+            TabButton {
+                text: "Balance Editor";
+                active: root.active_tab == 2;
+                accent-color: #f0b132;
+                clicked => { root.active_tab = 2; }
             }
 
-            Text {
-                text: "LUA 4.0 SCRIPTS";
-                font-size: 13px;
-                font-weight: root.active_tab == 3 ? 800 : 500;
-                color: root.active_tab == 3 ? #FFFFFF : #6F6F6F;
-                vertical-alignment: center;
-                TouchArea {
-                    clicked => { root.active_tab = 3; }
-                }
+            TabButton {
+                text: "Chunk Inspector";
+                active: root.active_tab == 3;
+                accent-color: #8a5cf6;
+                clicked => { root.active_tab = 3; }
             }
 
-            Text {
-                text: "TERMINAL LOG";
-                font-size: 13px;
-                font-weight: root.active_tab == 4 ? 800 : 500;
-                color: root.active_tab == 4 ? #FFFFFF : #6F6F6F;
-                vertical-alignment: center;
-                TouchArea {
-                    clicked => { root.active_tab = 4; }
-                }
+            TabButton {
+                text: "Lua 4.0 Scripts";
+                active: root.active_tab == 4;
+                accent-color: #3e6a90;
+                clicked => { root.active_tab = 4; }
             }
-        }
 
-        // Tab Title
-        Text {
-            text: root.active_tab == 0 ? "SpellForce PAK Archive Tool" :
-                (root.active_tab == 1 ? "CFF Database & Localization Tool" :
-                (root.active_tab == 2 ? "Binary Chunk Inspector & Patch Editor" :
-                (root.active_tab == 3 ? "Lua 4.0 Decompiler & Diagnostics Suite" : "Real-time Progress Terminal")));
-            font-size: 22px;
-            font-weight: 800;
-            color: #FFFFFF;
-            horizontal-alignment: center;
-            height: 30px;
-        }
+            TabButton {
+                text: "Terminal Log";
+                active: root.active_tab == 5;
+                accent-color: #e59535;
+                clicked => { root.active_tab = 5; }
+            }
 
-        HorizontalLayout {
-            spacing: 20px;
-
-            // Left Controls
             Rectangle {
-                width: 440px;
-                background: #1C1C1C;
-                border-color: #2C2C2C;
-                border-width: 1px;
-                border-radius: 8px;
-
-                // TAB 0: PAK
-                if (root.active_tab == 0): VerticalLayout {
-                    spacing: 12px;
-                    padding: 16px;
-
-                    Text {
-                        text: "Unpack Archive";
-                        font-size: 14px;
-                        font-weight: 700;
-                        color: #FFFFFF;
-                    }
-
-                    ToolButton {
-                        text: root.selected_pak == "" ? "Select .PAK Archive..." : "PAK: " + root.selected_pak;
-                        clicked => { root.selected_pak = root.browse_file("pak"); }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 8px;
-                        ToolButton {
-                            text: "Extract All";
-                            enabled: root.selected_pak != "";
-                            clicked => {
-                                let out_path = root.browse_folder();
-                                if (out_path != "") { root.unpack_pak(root.selected_pak, out_path); }
-                            }
-                        }
-
-                        ToolButton {
-                            text: "Batch Unpack...";
-                            clicked => {
-                                let root_folder = root.browse_folder();
-                                if (root_folder != "") { root.batch_unpack_pak(root_folder); }
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        height: 1px;
-                        background: #2C2C2C;
-                    }
-
-                    Text {
-                        text: "Pack Archive";
-                        font-size: 14px;
-                        font-weight: 700;
-                        color: #FFFFFF;
-                    }
-
-                    ToolButton {
-                        text: root.selected_folder == "" ? "Select Directory to Pack..." : "Folder: " + root.selected_folder;
-                        clicked => { root.selected_folder = root.browse_folder(); }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: "Format:";
-                            color: #AAAAAA;
-                            vertical-alignment: center;
-                            width: 65px;
-                        }
-
-                        ComboBox {
-                            model: ["SpellForce 1 (.pak)", "SpellForce 2 (.pak)"];
-                            current-value <=> root.persisted_pak_fmt;
-                        }
-                    }
-
-                    if (root.persisted_pak_fmt != "SpellForce 1 (.pak)"): HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: "Zlib Level:";
-                            color: #AAAAAA;
-                            vertical-alignment: center;
-                            width: 65px;
-                        }
-
-                        SpinBox {
-                            value <=> root.persisted_pak_comp;
-                            minimum: 0;
-                            maximum: 9;
-                        }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 8px;
-                        ToolButton {
-                            text: "Pack to .PAK";
-                            enabled: root.selected_folder != "";
-                            clicked => {
-                                let target = root.save_file("pak");
-                                if (target != "") { root.pack_pak(root.selected_folder, target, root.persisted_pak_fmt, root.persisted_pak_comp); }
-                            }
-                        }
-
-                        ToolButton {
-                            text: "Batch Pack...";
-                            clicked => {
-                                let root_folder = root.browse_folder();
-                                if (root_folder != "") { root.batch_pack_pak(root_folder, root.persisted_pak_fmt, root.persisted_pak_comp); }
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        vertical-stretch: 1;
-                    }
-                }
-
-                // TAB 1: CFF
-                if (root.active_tab == 1): VerticalLayout {
-                    spacing: 12px;
-                    padding: 16px;
-
-                    Text {
-                        text: "Unpack CFF Database";
-                        font-size: 14px;
-                        font-weight: 700;
-                        color: #FFFFFF;
-                    }
-
-                    ToolButton {
-                        text: root.selected_cff == "" ? "Open .CFF Database..." : "CFF: " + root.selected_cff;
-                        clicked => { root.selected_cff = root.browse_file("cff"); }
-                    }
-
-                    ToolButton {
-                        text: "Unpack Database & Text JSONs";
-                        enabled: root.selected_cff != "";
-                        clicked => {
-                            let out_path = root.browse_folder();
-                            if (out_path != "") { root.unpack_cff(root.selected_cff, out_path); }
-                        }
-                    }
-
-                    Rectangle {
-                        height: 1px;
-                        background: #2C2C2C;
-                    }
-
-                    Text {
-                        text: "Compile & Pack CFF";
-                        font-size: 14px;
-                        font-weight: 700;
-                        color: #FFFFFF;
-                    }
-
-                    ToolButton {
-                        text: root.selected_cff_dir == "" ? "Select Working Directory..." : "Dir: " + root.selected_cff_dir;
-                        clicked => { root.selected_cff_dir = root.browse_folder(); }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: "Zlib Level:";
-                            color: #AAAAAA;
-                            vertical-alignment: center;
-                            width: 75px;
-                        }
-
-                        SpinBox {
-                            value <=> root.persisted_cff_comp;
-                            minimum: 0;
-                            maximum: 9;
-                        }
-                    }
-
-                    ToolButton {
-                        text: "Import JSONs & Pack to .CFF";
-                        enabled: root.selected_cff_dir != "";
-                        clicked => {
-                            let target = root.save_file("cff");
-                            if (target != "") { root.pack_cff(root.selected_cff_dir, target, root.persisted_cff_comp); }
-                        }
-                    }
-
-                    Rectangle {
-                        vertical-stretch: 1;
-                    }
-                }
-
-                // TAB 2: CHUNK INSPECTOR
-                if (root.active_tab == 2): VerticalLayout {
-                    spacing: 12px;
-                    padding: 16px;
-
-                    Text {
-                        text: "Binary Chunk Scanner";
-                        font-size: 14px;
-                        font-weight: 700;
-                        color: #FFFFFF;
-                    }
-
-                    ToolButton {
-                        text: root.selected_dat == "" ? "Open .DAT Chunk File..." : "DAT: " + root.selected_dat;
-                        clicked => { root.selected_dat = root.browse_file("dat"); }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: "Filter:";
-                            color: #AAAAAA;
-                            vertical-alignment: center;
-                            width: 45px;
-                        }
-
-                        LineEdit {
-                            text <=> root.filter_text;
-                            font-family: "Consolas";
-                        }
-                    }
-
-                    ToolButton {
-                        text: "Scan Strings (ASCII & ANSI)";
-                        enabled: root.selected_dat != "";
-                        clicked => { root.scan_binary(root.selected_dat, root.filter_text); }
-                    }
-
-                    Rectangle {
-                        height: 1px;
-                        background: #2C2C2C;
-                    }
-
-                    Text {
-                        text: "Scanned Strings (Click to Inspect):";
-                        font-size: 12px;
-                        color: #888888;
-                    }
-
-                    ListView {
-                        height: 250px;
-                        for item[index] in root.inspector_results: Rectangle {
-                            height: 24px;
-                            background: ta_scan.has-hover ? #2E2E32 : (Math.mod(index, 2) == 0 ? #191919 : #1C1C1C);
-                            HorizontalLayout {
-                                padding-left: 8px;
-                                Text {
-                                    text: item.text;
-                                    color: #E0E0E0;
-                                    font-family: "Consolas";
-                                    font-size: 12px;
-                                    vertical-alignment: center;
-                                }
-                            }
-
-                            ta_scan := TouchArea {
-                                clicked => { root.inspector_select_row(index); }
-                            }
-                        }
-                    }
-                }
-
-                // TAB 3: LUA SCRIPTS
-                if (root.active_tab == 3): VerticalLayout {
-                    spacing: 12px;
-                    padding: 16px;
-
-                    Text {
-                        text: "Batch Lua 4.0 Decompiler";
-                        font-size: 14px;
-                        font-weight: 700;
-                        color: #FFFFFF;
-                    }
-
-                    ToolButton {
-                        text: root.lua_src_dir == "" ? "Select Source Scripts Folder..." : "Src: " + root.lua_src_dir;
-                        clicked => { root.lua_src_dir = root.browse_folder(); }
-                    }
-
-                    ToolButton {
-                        text: root.lua_out_dir == "" ? "Select Destination Folder..." : "Dst: " + root.lua_out_dir;
-                        clicked => { root.lua_out_dir = root.browse_folder(); }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: "LuaDec:";
-                            color: #AAAAAA;
-                            vertical-alignment: center;
-                            width: 60px;
-                        }
-
-                        LineEdit {
-                            text <=> root.luadec_path;
-                            font-family: "Consolas";
-                        }
-
-                        ToolButton {
-                            text: "Browse";
-                            width: 65px;
-                            clicked => {
-                                let f = root.browse_file("exe");
-                                if (f != "") { root.luadec_path = f; }
-                            }
-                        }
-                    }
-
-                    CheckBox {
-                        text: "Resume Existing (Skip already decompiled)";
-                        checked <=> root.lua_resume;
-                    }
-
-                    ToolButton {
-                        text: "Decompile All Bytecode";
-                        enabled: root.lua_src_dir != "" && root.lua_out_dir != "";
-                        clicked => { root.decompile_lua(root.lua_src_dir, root.lua_out_dir, root.luadec_path, root.lua_resume); }
-                    }
-
-                    Rectangle {
-                        height: 1px;
-                        background: #2C2C2C;
-                    }
-
-                    Text {
-                        text: "Syntax & Formatting Toolkit";
-                        font-size: 14px;
-                        font-weight: 700;
-                        color: #FFFFFF;
-                    }
-
-                    HorizontalLayout {
-                        spacing: 10px;
-                        Text {
-                            text: "Luac4:";
-                            color: #AAAAAA;
-                            vertical-alignment: center;
-                            width: 60px;
-                        }
-
-                        LineEdit {
-                            text <=> root.luac_path;
-                            font-family: "Consolas";
-                        }
-
-                        ToolButton {
-                            text: "Browse";
-                            width: 65px;
-                            clicked => {
-                                let f = root.browse_file("exe");
-                                if (f != "") { root.luac_path = f; }
-                            }
-                        }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 8px;
-                        ToolButton {
-                            text: "Check Syntax (luac4 -p)";
-                            enabled: root.lua_src_dir != "";
-                            clicked => { root.check_lua_syntax(root.lua_src_dir, root.luac_path); }
-                        }
-
-                        ToolButton {
-                            text: "Beautify Code (Tabs)";
-                            enabled: root.lua_src_dir != "";
-                            clicked => { root.format_lua_scripts(root.lua_src_dir, true); }
-                        }
-                    }
-
-                    Rectangle {
-                        vertical-stretch: 1;
-                    }
-                }
-
-                // TAB 4: TERMINAL
-                if (root.active_tab == 4): VerticalLayout {
-                    alignment: center;
-                    padding: 20px;
-                    Text {
-                        text: "Progress logs are displayed in full resolution on the right pane.";
-                        color: #666666;
-                        horizontal-alignment: center;
-                        wrap: word-wrap;
-                    }
-                }
-            }
-
-            // Right Panel
-            Rectangle {
-                background: #1C1C1C;
-                border-color: #2C2C2C;
-                border-width: 1px;
-                border-radius: 8px;
-
-                if (root.active_tab == 0 || root.active_tab == 1): VerticalLayout {
-                    padding: 10px;
-                    ListView {
-                        for item[index] in root.archive_files: Rectangle {
-                            height: 24px;
-                            background: ta.has-hover ? #2D2D2D : (Math.mod(index, 2) == 0 ? #1E1E1E : #1C1C1C);
-                            HorizontalLayout {
-                                padding-left: 10px;
-                                Text {
-                                    text: item.text;
-                                    color: white;
-                                    font-family: "Consolas";
-                                    font-size: 13px;
-                                    vertical-alignment: center;
-                                }
-                            }
-
-                            ta := TouchArea {
-                                clicked => { root.archive_item_clicked(index); }
-                            }
-                        }
-                    }
-                }
-
-                if (root.active_tab == 2): VerticalLayout {
-                    padding: 18px;
-                    spacing: 12px;
-
-                    Text {
-                        text: "Value Modifier & Offset Calculator";
-                        font-size: 15px;
-                        font-weight: 700;
-                        color: #FFFFFF;
-                    }
-
-                    HorizontalLayout {
-                        Text {
-                            text: "Base String Offset:";
-                            color: #AAAAAA;
-                            width: 130px;
-                            vertical-alignment: center;
-                        }
-
-                        LineEdit {
-                            text <=> root.inspector_base_offset;
-                            read-only: true;
-                            font-family: "Consolas";
-                        }
-                    }
-
-                    HorizontalLayout {
-                        spacing: 6px;
-                        Text {
-                            text: "Quick Shift:";
-                            color: #AAAAAA;
-                            width: 130px;
-                            vertical-alignment: center;
-                        }
-
-                        ToolButton {
-                            text: "-32";
-                            width: 45px;
-                            clicked => { offset_in.text = (root.inspector_base_offset.to-float() - 32) + ""; }
-                        }
-
-                        ToolButton {
-                            text: "-24";
-                            width: 45px;
-                            clicked => { offset_in.text = (root.inspector_base_offset.to-float() - 24) + ""; }
-                        }
-
-                        ToolButton {
-                            text: "-16";
-                            width: 45px;
-                            clicked => { offset_in.text = (root.inspector_base_offset.to-float() - 16) + ""; }
-                        }
-
-                        ToolButton {
-                            text: "0";
-                            width: 45px;
-                            clicked => { offset_in.text = root.inspector_base_offset; }
-                        }
-
-                        ToolButton {
-                            text: "+16";
-                            width: 45px;
-                            clicked => { offset_in.text = (root.inspector_base_offset.to-float() + 16) + ""; }
-                        }
-                    }
-
-                    HorizontalLayout {
-                        Text {
-                            text: "Target Offset:";
-                            color: #AAAAAA;
-                            width: 130px;
-                            vertical-alignment: center;
-                        }
-
-                        offset_in := LineEdit {
-                            text <=> root.inspector_target_offset;
-                            font-family: "Consolas";
-                        }
-                    }
-
-                    HorizontalLayout {
-                        Text {
-                            text: "Data Type:";
-                            color: #AAAAAA;
-                            width: 130px;
-                            vertical-alignment: center;
-                        }
-
-                        type_in := ComboBox {
-                            model: ["Byte", "Int16", "Int32", "Float32", "String"];
-                            current-value: "Int16";
-                        }
-                    }
-
-                    ToolButton {
-                        text: "Read Value from File";
-                        enabled: root.selected_dat != "";
-                        clicked => { current_val.text = root.read_value(root.selected_dat, offset_in.text, type_in.current-value); }
-                    }
-
-                    HorizontalLayout {
-                        Text {
-                            text: "Current Value:";
-                            color: #AAAAAA;
-                            width: 130px;
-                            vertical-alignment: center;
-                        }
-
-                        current_val := LineEdit {
-                            text <=> root.inspector_current_val;
-                            read-only: true;
-                            font-family: "Consolas";
-                        }
-                    }
-
-                    HorizontalLayout {
-                        Text {
-                            text: "New Value:";
-                            color: #AAAAAA;
-                            width: 130px;
-                            vertical-alignment: center;
-                        }
-
-                        new_val := LineEdit {
-                            font-family: "Consolas";
-                        }
-                    }
-
-                    ToolButton {
-                        text: "Write Value to Binary File";
-                        enabled: root.selected_dat != "";
-                        clicked => {
-                            root.write_value(root.selected_dat, offset_in.text, type_in.current-value, new_val.text);
-                            current_val.text = root.read_value(root.selected_dat, offset_in.text, type_in.current-value);
-                        }
-                    }
-
-                    Rectangle {
-                        vertical-stretch: 1;
-                    }
-                }
-
-                if (root.active_tab == 3): VerticalLayout {
-                    padding: 20px;
-                    spacing: 12px;
-
-                    Text {
-                        text: "SpellForce Lua 4.0 Architecture";
-                        font-size: 16px;
-                        font-weight: 700;
-                        color: #FFFFFF;
-                    }
-
-                    Text {
-                        text: "SpellForce 1 uses a customized Lua 4.0.1 runtime with proprietary opcodes and K&R function syntax.\n\n" +
-                            "• Decompiler: Runs multi-threaded 'luadec' on bytecode files while passing plain-text scripts as-is.\n" +
-                            "• Syntax Diagnostics: Runs 'luac4 -p' concurrently over all scripts to pinpoint broken syntax.\n" +
-                            "• Pretty-Printer: Normalizes syntactic sugar (e.g. 'Name = function' -> 'function Name') and collapses tables.\n\n" +
-                            "All background tasks output detailed diagnostic reports directly into the Progress Terminal.";
-                        color: #AAAAAA;
-                        font-size: 13px;
-                        wrap: word-wrap;
-                    }
-
-                    Rectangle {
-                        vertical-stretch: 1;
-                    }
-                }
-
-                if (root.active_tab == 4): VerticalLayout {
-                    padding: 10px;
-                    TextEdit {
-                        text <=> root.log_text;
-                        read-only: true;
-                        font-family: "Consolas";
-                        font-size: 13px;
-                    }
-                }
+                horizontal-stretch: 1;
             }
         }
 
-        // Bottom Status Bar
+        // DYNAMIC CONTENT VIEWPORTS
         Rectangle {
-            height: 30px;
-            background: #1C1C1C;
-            border-color: #2C2C2C;
+            vertical-stretch: 1;
+            horizontal-stretch: 1;
+
+            if root.active_tab == 0: PakTab {
+                sidebar_width <=> root.sidebar_width;
+                selected_pak <=> root.selected_pak;
+                selected_folder <=> root.selected_folder;
+                persisted_pak_fmt <=> root.persisted_pak_fmt;
+                persisted_pak_comp <=> root.persisted_pak_comp;
+                archive_files: root.archive_files;
+
+                browse_file(ext) => { root.browse_file(ext) }
+                browse_folder => { root.browse_folder() }
+                save_file(ext) => { root.save_file(ext) }
+                unpack_pak(p, out) => { root.unpack_pak(p, out) }
+                pack_pak(src, out, fmt, comp) => { root.pack_pak(src, out, fmt, comp) }
+                batch_unpack_pak(f) => { root.batch_unpack_pak(f) }
+                batch_pack_pak(f, fmt, comp) => { root.batch_pack_pak(f, fmt, comp) }
+                archive_item_clicked(idx) => { root.archive_item_clicked(idx) }
+            }
+
+            if root.active_tab == 1: CffTab {
+                sidebar_width <=> root.sidebar_width;
+                selected_cff <=> root.selected_cff;
+                selected_cff_dir <=> root.selected_cff_dir;
+                persisted_cff_comp <=> root.persisted_cff_comp;
+                archive_files: root.archive_files;
+
+                browse_file(ext) => { root.browse_file(ext) }
+                browse_folder => { root.browse_folder() }
+                save_file(ext) => { root.save_file(ext) }
+                unpack_cff(cff, out) => { root.unpack_cff(cff, out) }
+                pack_cff(dir, out, comp) => { root.pack_cff(dir, out, comp) }
+                create_cff_diff(b, m, p) => { root.create_cff_diff(b, m, p) }
+                apply_cff_patch(t, p) => { root.apply_cff_patch(t, p) }
+                archive_item_clicked(idx) => { root.archive_item_clicked(idx) }
+            }
+
+            if root.active_tab == 2: EditorTab {
+                sidebar_width <=> root.sidebar_width;
+                editor_cff_dir <=> root.editor_cff_dir;
+                editor_filter <=> root.editor_filter;
+                editor_active_category <=> root.editor_active_category;
+                editor_entries: root.editor_entries;
+                editor_selected_idx <=> root.editor_selected_idx;
+                editor_field_id <=> root.editor_field_id;
+                editor_field_val1 <=> root.editor_field_val1;
+                editor_field_val2 <=> root.editor_field_val2;
+
+                browse_folder => { root.browse_folder() }
+                load_editor_data(dir, cat) => { root.load_editor_data(dir, cat) }
+                select_editor_entry(idx) => { root.select_editor_entry(idx) }
+                save_editor_entry(dir, cat, idx, id, v1, v2) => { root.save_editor_entry(dir, cat, idx, id, v1, v2) }
+            }
+
+            if root.active_tab == 3: InspectorTab {
+                sidebar_width <=> root.sidebar_width;
+                selected_dat <=> root.selected_dat;
+                filter_text <=> root.filter_text;
+                inspector_target_offset <=> root.inspector_target_offset;
+                inspector_base_offset <=> root.inspector_base_offset;
+                inspector_current_val <=> root.inspector_current_val;
+                inspector_results: root.inspector_results;
+
+                browse_file(ext) => { root.browse_file(ext) }
+                scan_binary(dat, flt) => { root.scan_binary(dat, flt) }
+                read_value(dat, off, dt) => { root.read_value(dat, off, dt) }
+                write_value(dat, off, dt, val) => { root.write_value(dat, off, dt, val) }
+                inspector_select_row(idx) => { root.inspector_select_row(idx) }
+            }
+
+            if root.active_tab == 4: LuaTab {
+                sidebar_width <=> root.sidebar_width;
+                lua_src_dir <=> root.lua_src_dir;
+                lua_out_dir <=> root.lua_out_dir;
+                luadec_path <=> root.luadec_path;
+                luac_path <=> root.luac_path;
+                lua_resume <=> root.lua_resume;
+
+                browse_folder => { root.browse_folder() }
+                browse_file(ext) => { root.browse_file(ext) }
+                decompile_lua(s, d, exe, res) => { root.decompile_lua(s, d, exe, res) }
+                check_lua_syntax(s, exe) => { root.check_lua_syntax(s, exe) }
+                format_lua_scripts(s, tabs) => { root.format_lua_scripts(s, tabs) }
+            }
+
+            if root.active_tab == 5: LogTab {
+                log_text: root.log_text;
+            }
+        }
+
+        // FIXED BOTTOM STATUS BAR
+        Rectangle {
+            height: 32px;
+            background: #2b2d31;
+            border-color: #1f2023;
             border-width: 1px;
             border-radius: 4px;
-            Text {
-                x: 10px;
-                color: #4CAF50;
-                text: root.status_msg;
-                vertical-alignment: center;
-                font-size: 13px;
+
+            HorizontalLayout {
+                padding-left: 10px;
+                padding-right: 10px;
+                spacing: 10px;
+
+                Rectangle {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: #23a55a;
+                    y: (parent.height - self.height) / 2;
+                }
+
+                Text {
+                    text: root.status_msg;
+                    color: #cfcfcf;
+                    font-size: 12px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+
+                Text {
+                    text: "SFTool v2.1";
+                    color: #808080;
+                    font-size: 11px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
             }
         }
     }
