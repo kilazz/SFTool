@@ -159,7 +159,7 @@ Disassembled from `CGameDatabase::Load` (`FUN_0091a930`):
 | **`0x07F7`** | 2039 | 1 | **4 bytes** | `u16 key, u16 val` (`TextDialogueMap`) |
 | **`0x07FC`** | 2044 | 1 | **3 bytes** | `u8 key, u16 val` (`TypeCategoryMap`) |
 | **`0x07FF`** | 2047 | 1 | **5 bytes** | `u16 key -> vector<u16, u8>` (`EntityLinkMap`) |
-| **`0x0800`** | 2048 | **3** ⚠️ | **15 bytes** | `u8 key, u32 f1, u32 f2, u16 f3, u32 f4` (`ComplexProperties`) |
+| **`0x0800`** | 2048 | **3** ⚠️ | **15 bytes** | **ComplexProperties**: `u8 key, u32 f1, u32 f2, u16 f3, u32 f4` |
 | **`0x0801`** | 2049 | 1 | **2 bytes** | Flat array of `u16` words (`WordValuesArray`) |
 | **`0x080A`** | 2058 | 1 | **4 bytes** | `u16 str_id, u16 text_id` (`LocalizedStringIds`) |
 | **`0x080B`** | 2059 | 1 | **6 bytes** | `u32 id, u16 param` (`AudioSpeechParams`) |
@@ -243,7 +243,7 @@ Item Record (ItemID)
 ### 5.2. Spell Linking (`SpellsBiMap` 0x07E2)
 Spell casting logic is strictly decoupled from inventory scrolls:
 
-$$\text{Spell ID (Combat Spell Entity)} \xleftrightarrow[\text{0x07E2}]{\text{BiMap}} \text{Scroll ID (Inventory Item Entity)}$$
+$$\text{Spell ID (Combat Spell Entity)} \quad \xrightleftharpoons[\text{0x07E2}]{\text{BiMap}} \quad \text{Scroll ID (Inventory Item Entity)}$$
 
 ---
 
