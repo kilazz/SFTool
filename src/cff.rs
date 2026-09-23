@@ -863,7 +863,14 @@ pub fn unpack_all(input: &Path, out_dir: &Path, logger: &UiLogger) -> io::Result
             let comp_size = cursor.read_i32::<LittleEndian>()?;
             let c_type = cursor.read_i16::<LittleEndian>()?;
 
-            if comp_size <= 0 || cursor.position() as usize + (comp_size as usize) > data.len() {
+            // Strict boundary validation accounting for uncomp_size header (4 bytes)
+            let required_bytes = if comp_flag == 0 {
+                comp_size as usize
+            } else {
+                4 + (comp_size as usize)
+            };
+
+            if comp_size <= 0 || cursor.position() as usize + required_bytes > data.len() {
                 logger.log(&format!(
                     "[!] Warning: Corrupted SF1 chunk {} with invalid size {}",
                     chunk_idx, comp_size
@@ -876,15 +883,11 @@ pub fn unpack_all(input: &Path, out_dir: &Path, logger: &UiLogger) -> io::Result
                 cursor.read_exact(&mut buf)?;
                 buf
             } else {
-                if cursor.position() as usize + 4 > data.len() {
-                    break;
-                }
                 let _uncomp_size = cursor.read_i32::<LittleEndian>()?;
                 let mut comp_data = vec![0u8; comp_size as usize];
                 cursor.read_exact(&mut comp_data)?;
 
                 let mut uncomp_data = Vec::new();
-
                 let mut decoder = ZlibDecoder::new(comp_data.as_slice());
                 if decoder.read_to_end(&mut uncomp_data).is_err() {
                     uncomp_data = comp_data;
@@ -1478,15 +1481,45 @@ pub fn save_editor_item(
         if parts.len() == 2 {
             let fname = format!("{}.json", parts[0]);
             let key = parts[1];
-            let json_path = cff_dir.join("texts_json").join(fname);
+            let json_path = cff_dir.join("texts_json").join(&fname);
+
             if json_path.exists() {
                 let mut map: BTreeMap<String, String> =
                     serde_json::from_str(&fs::read_to_string(&json_path)?)
                         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
                 map.insert(key.to_string(), val1.to_string());
-                let f = File::create(json_path)?;
+                let f = File::create(&json_path)?;
                 serde_json::to_writer_pretty(f, &map)?;
             }
+
+            // Immediately synchronize to the underlying Fixed566 binary chunk
+            if key.starts_with("f566_") {
+                let k_parts: Vec<&str> = key.split('_').collect();
+                if let Some(offset) = k_parts.get(1).and_then(|s| s.parse::<usize>().ok()) {
+                    let str_id = k_parts
+                        .get(2)
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(0);
+                    let lang_id = ((str_id >> 16) & 0xFF) as u16;
+
+                    let chunk_dat_name = parts[0].replace("_strings", ".dat");
+                    let chunk_dat_path = cff_dir.join(&chunk_dat_name);
+                    if chunk_dat_path.exists() {
+                        let mut b = fs::read(&chunk_dat_path)?;
+                        if offset + 566 <= b.len() {
+                            let mut text_bytes = encode_by_lang(val1, lang_id);
+                            if text_bytes.len() > 511 {
+                                text_bytes.truncate(511);
+                            }
+                            let mut padded = vec![0u8; 512];
+                            padded[..text_bytes.len()].copy_from_slice(&text_bytes);
+                            b[offset + 54..offset + 566].copy_from_slice(&padded);
+                            File::create(&chunk_dat_path)?.write_all(&b)?;
+                        }
+                    }
+                }
+            }
+            return Ok(());
         }
     }
     Ok(())
@@ -1561,25 +1594,95 @@ pub fn add_editor_item(cff_dir: &Path, category: &str) -> io::Result<String> {
             return Ok(new_id.to_string());
         }
     } else {
-        let json_dir = cff_dir.join("texts_json");
-        if let Ok(entries) = fs::read_dir(json_dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("json")
-                    && !path.to_string_lossy().ends_with(".meta.json")
+        // Localized Strings: find Fixed566 chunk and allocate a real block
+        let manifest_path = cff_dir.join("manifest.json");
+        let mut target_f566_chunk = None;
+
+        if let Ok(m_str) = fs::read_to_string(&manifest_path)
+            && let Ok(manifest) = serde_json::from_str::<Manifest>(&m_str)
+        {
+            for chunk in &manifest.chunks {
+                let p = cff_dir.join(&chunk.file);
+                if let Ok(meta) = fs::metadata(&p)
+                    && meta.len() >= 566
+                    && meta.len() % 566 == 0
                 {
-                    let fname = path.file_stem().unwrap().to_string_lossy().to_string();
-                    let mut map: BTreeMap<String, String> =
-                        serde_json::from_str(&fs::read_to_string(&path)?).map_err(|e| {
-                            io::Error::new(io::ErrorKind::InvalidData, e.to_string())
-                        })?;
+                    target_f566_chunk = Some(chunk.file.clone());
+                    break;
+                }
+            }
+        }
 
-                    let new_key = format!("custom_str_{}", map.len() + 1);
-                    map.insert(new_key.clone(), "New Localized String".into());
-                    let f = File::create(&path)?;
-                    serde_json::to_writer_pretty(f, &map)?;
+        if let Some(chunk_file) = target_f566_chunk {
+            let chunk_path = cff_dir.join(&chunk_file);
+            let mut bytes = fs::read(&chunk_path)?;
 
-                    return Ok(format!("{}:{}", fname, new_key));
+            let mut max_base_id = 0u16;
+            let count = bytes.len() / 566;
+            for i in 0..count {
+                let off = i * 566;
+                let sid = Cursor::new(&bytes[off..off + 4])
+                    .read_u32::<LittleEndian>()
+                    .unwrap_or(0);
+                max_base_id = max_base_id.max((sid & 0xFFFF) as u16);
+            }
+
+            let new_base_id = max_base_id.saturating_add(1);
+            let default_lang: u8 = 1; // English (Slot 1)
+            let default_camp: u8 = 0; // Order of Dawn
+            let new_str_id = ((default_camp as u32) << 24)
+                | ((default_lang as u32) << 16)
+                | (new_base_id as u32);
+            let new_offset = bytes.len();
+
+            let mut record = vec![0u8; 566];
+            record[0..4].copy_from_slice(&new_str_id.to_le_bytes());
+            let default_text = "New Localized String";
+            let text_bytes = encode_by_lang(default_text, default_lang as u16);
+            let len = text_bytes.len().min(511);
+            record[54..54 + len].copy_from_slice(&text_bytes[..len]);
+
+            bytes.extend_from_slice(&record);
+            File::create(&chunk_path)?.write_all(&bytes)?;
+
+            let stem = chunk_file.trim_end_matches(".dat");
+            let json_dir = cff_dir.join("texts_json");
+            fs::create_dir_all(&json_dir)?;
+            let json_path = json_dir.join(format!("{}_strings.json", stem));
+
+            let mut map: BTreeMap<String, String> = if json_path.exists() {
+                serde_json::from_str(&fs::read_to_string(&json_path)?).unwrap_or_default()
+            } else {
+                BTreeMap::new()
+            };
+
+            let new_key = format!("f566_{:08}_{}", new_offset, new_str_id);
+            map.insert(new_key.clone(), default_text.to_string());
+            serde_json::to_writer_pretty(File::create(&json_path)?, &map)?;
+
+            return Ok(format!("{}_strings:{}", stem, new_key));
+        } else {
+            // Generic fallback for custom text formats
+            let json_dir = cff_dir.join("texts_json");
+            if let Ok(entries) = fs::read_dir(&json_dir) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("json")
+                        && !path.to_string_lossy().ends_with(".meta.json")
+                    {
+                        let fname = path.file_stem().unwrap().to_string_lossy().to_string();
+                        let mut map: BTreeMap<String, String> =
+                            serde_json::from_str(&fs::read_to_string(&path)?).map_err(|e| {
+                                io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+                            })?;
+
+                        let new_key = format!("custom_str_{}", map.len() + 1);
+                        map.insert(new_key.clone(), "New Localized String".into());
+                        let f = File::create(&path)?;
+                        serde_json::to_writer_pretty(f, &map)?;
+
+                        return Ok(format!("{}:{}", fname, new_key));
+                    }
                 }
             }
         }
@@ -1656,8 +1759,60 @@ pub fn duplicate_editor_item(
         if parts.len() == 2 {
             let fname = format!("{}.json", parts[0]);
             let key = parts[1];
-            let json_path = cff_dir.join("texts_json").join(fname);
-            if json_path.exists() {
+            let json_path = cff_dir.join("texts_json").join(&fname);
+
+            if key.starts_with("f566_") {
+                let k_parts: Vec<&str> = key.split('_').collect();
+                if let Some(src_offset) = k_parts.get(1).and_then(|s| s.parse::<usize>().ok()) {
+                    let chunk_dat_name = parts[0].replace("_strings", ".dat");
+                    let chunk_dat_path = cff_dir.join(&chunk_dat_name);
+                    if chunk_dat_path.exists() {
+                        let mut b = fs::read(&chunk_dat_path)?;
+                        if src_offset + 566 <= b.len() {
+                            let mut max_base_id = 0u16;
+                            let count = b.len() / 566;
+                            for i in 0..count {
+                                let off = i * 566;
+                                let sid = Cursor::new(&b[off..off + 4])
+                                    .read_u32::<LittleEndian>()
+                                    .unwrap_or(0);
+                                max_base_id = max_base_id.max((sid & 0xFFFF) as u16);
+                            }
+                            let new_base_id = max_base_id.saturating_add(1);
+
+                            let src_block = &b[src_offset..src_offset + 566];
+                            let src_str_id = Cursor::new(&src_block[0..4])
+                                .read_u32::<LittleEndian>()
+                                .unwrap_or(0);
+                            let camp_id = src_str_id >> 24;
+                            let lang_id = (src_str_id >> 16) & 0xFF;
+                            let new_str_id =
+                                (camp_id << 24) | (lang_id << 16) | (new_base_id as u32);
+
+                            let mut cloned_block = src_block.to_vec();
+                            cloned_block[0..4].copy_from_slice(&new_str_id.to_le_bytes());
+                            let new_offset = b.len();
+
+                            b.extend_from_slice(&cloned_block);
+                            File::create(&chunk_dat_path)?.write_all(&b)?;
+
+                            let mut map: BTreeMap<String, String> = if json_path.exists() {
+                                serde_json::from_str(&fs::read_to_string(&json_path)?)
+                                    .unwrap_or_default()
+                            } else {
+                                BTreeMap::new()
+                            };
+
+                            let original_val = map.get(key).cloned().unwrap_or_default();
+                            let new_key = format!("f566_{:08}_{}", new_offset, new_str_id);
+                            map.insert(new_key.clone(), original_val);
+                            serde_json::to_writer_pretty(File::create(&json_path)?, &map)?;
+
+                            return Ok(format!("{}:{}", parts[0], new_key));
+                        }
+                    }
+                }
+            } else if json_path.exists() {
                 let mut map: BTreeMap<String, String> =
                     serde_json::from_str(&fs::read_to_string(&json_path)?)
                         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
@@ -1665,7 +1820,7 @@ pub fn duplicate_editor_item(
                 let original_val = map.get(key).cloned().unwrap_or_default();
                 let new_key = format!("{}_copy", key);
                 map.insert(new_key.clone(), original_val);
-                let f = File::create(json_path)?;
+                let f = File::create(&json_path)?;
                 serde_json::to_writer_pretty(f, &map)?;
 
                 return Ok(format!("{}:{}", parts[0], new_key));
@@ -1719,30 +1874,57 @@ pub fn delete_editor_item(
             let fname = format!("{}.json", parts[0]);
             let key = parts[1];
             let json_path = cff_dir.join("texts_json").join(&fname);
-            if json_path.exists() {
+
+            if key.starts_with("f566_") {
+                let k_parts: Vec<&str> = key.split('_').collect();
+                if let Some(target_offset) = k_parts.get(1).and_then(|s| s.parse::<usize>().ok()) {
+                    let chunk_dat_name = parts[0].replace("_strings", ".dat");
+                    let chunk_dat_path = cff_dir.join(&chunk_dat_name);
+                    if chunk_dat_path.exists() {
+                        let mut b = fs::read(&chunk_dat_path)?;
+                        if target_offset + 566 <= b.len() {
+                            b.drain(target_offset..target_offset + 566);
+                            File::create(&chunk_dat_path)?.write_all(&b)?;
+                        }
+                    }
+
+                    // Dynamically shift all subsequent offsets back by 566 bytes to preserve synchronization
+                    if json_path.exists() {
+                        let map: BTreeMap<String, String> = serde_json::from_str(
+                            &fs::read_to_string(&json_path)?,
+                        )
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+                        let mut updated_map = BTreeMap::new();
+                        for (k, v) in map {
+                            if k == key {
+                                continue;
+                            }
+                            if k.starts_with("f566_") {
+                                let kp: Vec<&str> = k.split('_').collect();
+                                if let (Some(off), Some(sid)) =
+                                    (kp.get(1).and_then(|s| s.parse::<usize>().ok()), kp.get(2))
+                                    && off > target_offset
+                                {
+                                    let new_k = format!("f566_{:08}_{}", off - 566, sid);
+                                    updated_map.insert(new_k, v);
+                                    continue;
+                                }
+                            }
+                            updated_map.insert(k, v);
+                        }
+                        serde_json::to_writer_pretty(File::create(&json_path)?, &updated_map)?;
+                    }
+                    return Ok(());
+                }
+            } else if json_path.exists() {
                 let mut map: BTreeMap<String, String> =
                     serde_json::from_str(&fs::read_to_string(&json_path)?)
                         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
                 map.remove(key);
                 let f = File::create(&json_path)?;
                 serde_json::to_writer_pretty(f, &map)?;
+                return Ok(());
             }
-
-            if key.starts_with("f566_") {
-                let k_parts: Vec<&str> = key.split('_').collect();
-                if let Some(offset) = k_parts.get(1).and_then(|s| s.parse::<usize>().ok()) {
-                    let chunk_dat_name = parts[0].replace("_strings", ".dat");
-                    let chunk_dat_path = cff_dir.join(&chunk_dat_name);
-                    if chunk_dat_path.exists() {
-                        let mut b = fs::read(&chunk_dat_path)?;
-                        if offset + 566 <= b.len() {
-                            b.drain(offset..offset + 566);
-                            File::create(&chunk_dat_path)?.write_all(&b)?;
-                        }
-                    }
-                }
-            }
-            return Ok(());
         }
     }
     Err(io::Error::other("Failed to delete record"))
@@ -1973,6 +2155,8 @@ pub fn clone_language_slot(
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
     let mut cloned_count = 0;
+    let json_dir = cff_dir.join("texts_json");
+    let _ = fs::create_dir_all(&json_dir);
 
     for chunk in &manifest.chunks {
         let chunk_path = cff_dir.join(&chunk.file);
@@ -1986,6 +2170,7 @@ pub fn clone_language_slot(
 
         let num_blocks = data.len() / 566;
         let mut new_blocks = Vec::new();
+        let mut cloned_entries = Vec::new();
 
         for i in 0..num_blocks {
             let offset = i * 566;
@@ -1999,7 +2184,16 @@ pub fn clone_language_slot(
                 let mut new_block = block.to_vec();
                 let new_str_id = (camp_id << 24) | ((dst_slot as u32) << 16) | (base_id as u32);
                 new_block[0..4].copy_from_slice(&new_str_id.to_le_bytes());
+
+                let new_offset = data.len() + new_blocks.len();
+                let mut text_bytes = &block[54..566];
+                if let Some(null_idx) = text_bytes.iter().position(|&b| b == 0) {
+                    text_bytes = &text_bytes[..null_idx];
+                }
+                let text = decode_by_lang(text_bytes, src_slot);
+
                 new_blocks.extend_from_slice(&new_block);
+                cloned_entries.push((new_offset, new_str_id, text));
                 cloned_count += 1;
             }
         }
@@ -2012,42 +2206,21 @@ pub fn clone_language_slot(
                 new_blocks.len() / 566,
                 chunk.file
             ));
-        }
-    }
 
-    let json_dir = cff_dir.join("texts_json");
-    if json_dir.exists()
-        && let Ok(entries) = fs::read_dir(&json_dir)
-    {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let p = entry.path();
-            if p.extension().and_then(|s| s.to_str()) == Some("json")
-                && !p.to_string_lossy().ends_with(".meta.json")
-                && let Ok(content) = fs::read_to_string(&p)
-                && let Ok(mut map) = serde_json::from_str::<BTreeMap<String, String>>(&content)
-            {
-                let mut to_add = Vec::new();
-                for (k, v) in &map {
-                    if k.starts_with("f566_") {
-                        let parts: Vec<&str> = k.split('_').collect();
-                        if let Some(str_id) = parts.get(2).and_then(|s| s.parse::<u32>().ok()) {
-                            let l_id = ((str_id >> 16) & 0xFF) as u16;
-                            let b_id = (str_id & 0xFFFF) as u16;
-                            let camp_id = str_id >> 24;
-                            if l_id == src_slot {
-                                let new_str_id =
-                                    (camp_id << 24) | ((dst_slot as u32) << 16) | (b_id as u32);
-                                let new_k = format!("f566_{}_{}", parts[1], new_str_id);
-                                to_add.push((new_k, v.clone()));
-                            }
-                        }
-                    }
-                }
-                for (k, v) in to_add {
-                    map.insert(k, v);
-                }
-                let _ = serde_json::to_writer_pretty(File::create(&p)?, &map);
+            // Synchronize the matching JSON file with exact new offsets
+            let stem = chunk.file.trim_end_matches(".dat");
+            let json_path = json_dir.join(format!("{}_strings.json", stem));
+            let mut map: BTreeMap<String, String> = if json_path.exists() {
+                serde_json::from_str(&fs::read_to_string(&json_path)?).unwrap_or_default()
+            } else {
+                BTreeMap::new()
+            };
+
+            for (new_offset, new_str_id, text) in cloned_entries {
+                let new_key = format!("f566_{:08}_{}", new_offset, new_str_id);
+                map.insert(new_key, text);
             }
+            serde_json::to_writer_pretty(File::create(&json_path)?, &map)?;
         }
     }
 
@@ -2146,7 +2319,7 @@ pub fn replace_slot_from_json(
                         }
                     }
                 }
-                let _ = serde_json::to_writer_pretty(File::create(&p)?, &map);
+                serde_json::to_writer_pretty(File::create(&p)?, &map)?;
             }
         }
     }
