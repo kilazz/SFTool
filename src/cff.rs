@@ -2157,3 +2157,122 @@ pub fn replace_slot_from_json(
     ));
     Ok(updated_count)
 }
+
+// -----------------------------------------------------------------------------
+// TEXTURE SEARCH & SPELL CROSS-REFERENCE ENGINE
+// -----------------------------------------------------------------------------
+
+pub fn find_and_load_texture(
+    cff_dir: &Path,
+    mesh_name: &str,
+) -> Option<(image::RgbaImage, String)> {
+    let clean_name = mesh_name
+        .trim()
+        .trim_end_matches(".msh")
+        .trim_end_matches(".msb");
+
+    if clean_name.is_empty() {
+        return None;
+    }
+
+    let extensions = ["dds", "tga", "png"];
+    let mut search_dirs = Vec::new();
+
+    // 1. Direct textures subfolders
+    search_dirs.push(cff_dir.join("textures"));
+    search_dirs.push(cff_dir.join("textures").join("gui"));
+    search_dirs.push(cff_dir.join("textures").join("ui"));
+
+    // 2. Parent directories (Game root / data)
+    if let Some(parent) = cff_dir.parent() {
+        search_dirs.push(parent.join("textures"));
+        search_dirs.push(parent.join("textures").join("gui"));
+        search_dirs.push(parent.join("textures").join("ui"));
+        if let Some(grandparent) = parent.parent() {
+            search_dirs.push(grandparent.join("textures"));
+            search_dirs.push(grandparent.join("textures").join("gui"));
+            search_dirs.push(grandparent.join("textures").join("ui"));
+        }
+    }
+
+    for dir in search_dirs {
+        if !dir.exists() {
+            continue;
+        }
+        for ext in &extensions {
+            let file_path = dir.join(format!("{}.{}", clean_name, ext));
+            if file_path.exists()
+                && let Ok(bytes) = fs::read(&file_path)
+            {
+                let filename = file_path.file_name().unwrap().to_string_lossy().to_string();
+                if *ext == "dds" {
+                    if let Ok(rgba) = crate::dds::decode_dds_to_rgba(&bytes, Some(128)) {
+                        return Some((rgba, filename));
+                    }
+                } else if let Ok(dyn_img) = image::load_from_memory(&bytes) {
+                    return Some((dyn_img.into_rgba8(), filename));
+                }
+            }
+        }
+    }
+
+    None
+}
+
+pub struct SpellVisualDetails {
+    pub spell_name: String,
+    pub spell_mesh: String,
+    pub scroll_name: String,
+    pub scroll_mesh: String,
+}
+
+pub fn resolve_spell_cross_reference(
+    cff_dir: &Path,
+    spell_id: u16,
+    scroll_id: u16,
+) -> SpellVisualDetails {
+    let mut spell_mesh = String::new();
+    let mut scroll_mesh = String::new();
+
+    let manifest_path = cff_dir.join("manifest.json");
+    if let Ok(m_str) = fs::read_to_string(manifest_path)
+        && let Ok(manifest) = serde_json::from_str::<Manifest>(&m_str)
+        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC)
+    {
+        let chunk_path = cff_dir.join(&chunk.file);
+        if let Ok(bytes) = fs::read(chunk_path) {
+            let count = bytes.len() / 69;
+            for i in 0..count {
+                let offset = i * 69;
+                let id = Cursor::new(&bytes[offset..offset + 2])
+                    .read_u16::<LittleEndian>()
+                    .unwrap_or(0);
+                let flag = bytes[offset + 2];
+                let mesh_bytes = &bytes[offset + 3..offset + 67];
+                let end = mesh_bytes
+                    .iter()
+                    .position(|&b| b == 0)
+                    .unwrap_or(mesh_bytes.len());
+                let m_name = decode_windows(&mesh_bytes[..end]);
+
+                if id == spell_id && (flag == 2 || spell_mesh.is_empty()) {
+                    spell_mesh = m_name.clone();
+                }
+                if id == scroll_id && (flag == 1 || scroll_mesh.is_empty()) {
+                    scroll_mesh = m_name;
+                }
+            }
+        }
+    }
+
+    if scroll_mesh.is_empty() {
+        scroll_mesh = "ui_item_spellscroll".to_string();
+    }
+
+    SpellVisualDetails {
+        spell_name: format!("Spell #{}", spell_id),
+        spell_mesh,
+        scroll_name: format!("Scroll #{}", scroll_id),
+        scroll_mesh,
+    }
+}

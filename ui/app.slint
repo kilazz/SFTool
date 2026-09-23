@@ -56,6 +56,13 @@ export component AppWindow inherits Window {
     in-out property <string> editor_field_val1: "";
     in-out property <string> editor_field_val2: "";
 
+    // Visual Previews & Dual Cards
+    in-out property <image> preview_icon1;
+    in-out property <image> preview_icon2;
+    in-out property <string> spell_name_disp: "";
+    in-out property <string> scroll_name_disp: "";
+    in-out property <string> asset_status_text: "Select a record to preview asset.";
+
     // History Undo/Redo States
     in-out property <bool> can_undo: false;
     in-out property <bool> can_redo: false;
@@ -209,6 +216,11 @@ export component AppWindow inherits Window {
                 editor_field_id <=> root.editor_field_id;
                 editor_field_val1 <=> root.editor_field_val1;
                 editor_field_val2 <=> root.editor_field_val2;
+                preview_icon1 <=> root.preview_icon1;
+                preview_icon2 <=> root.preview_icon2;
+                spell_name_disp <=> root.spell_name_disp;
+                scroll_name_disp <=> root.scroll_name_disp;
+                asset_status_text <=> root.asset_status_text;
                 can_undo: root.can_undo;
                 can_redo: root.can_redo;
 

@@ -1,10 +1,11 @@
 slint::include_modules!();
 
 mod cff;
+mod dds;
 mod lua;
 mod pak;
 
-use slint::{ModelRc, SharedString, StandardListViewItem, VecModel};
+use slint::{Image, ModelRc, SharedString, StandardListViewItem, VecModel};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -580,10 +581,57 @@ fn run_gui() -> Result<(), slint::PlatformError> {
             let id = item.id_str.clone();
             let val1 = item.val1.clone();
             let val2 = item.val2.clone();
+            let ui_weak = ui_weak_sel.clone();
+
             let _ = ui_weak_sel.upgrade_in_event_loop(move |ui| {
-                ui.set_editor_field_id(id.into());
-                ui.set_editor_field_val1(val1.into());
+                ui.set_editor_field_id(id.clone().into());
+                ui.set_editor_field_val1(val1.clone().into());
                 ui.set_editor_field_val2(val2.into());
+
+                let cat = ui.get_editor_active_category();
+                let dir = PathBuf::from(ui.get_editor_cff_dir().as_str());
+
+                thread::spawn(move || {
+                    if cat == "2D Gfx Items (0x07DC)" {
+                        if let Some((rgba, fname)) = cff::find_and_load_texture(&dir, &val1) {
+                            let status = format!("Loaded: {}", fname);
+                            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                                ui.set_preview_icon1(crate::dds::rgba_to_slint(rgba));
+                                ui.set_asset_status_text(status.into());
+                            });
+                        } else {
+                            let status = format!("Texture '{}.dds' not found.", val1);
+                            let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                                ui.set_preview_icon1(Image::default());
+                                ui.set_asset_status_text(status.into());
+                            });
+                        }
+                    } else if cat == "Spells Mapping (0x07E2)" {
+                        let spell_id = id.parse::<u16>().unwrap_or(0);
+                        let scroll_id = val1.parse::<u16>().unwrap_or(0);
+                        let details = cff::resolve_spell_cross_reference(&dir, spell_id, scroll_id);
+
+                        let spell_rgba = cff::find_and_load_texture(&dir, &details.spell_mesh)
+                            .map(|(rgba, _)| rgba);
+
+                        let scroll_rgba = cff::find_and_load_texture(&dir, &details.scroll_mesh)
+                            .map(|(rgba, _)| rgba);
+
+                        let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+                            let spell_img = spell_rgba
+                                .map(crate::dds::rgba_to_slint)
+                                .unwrap_or_default();
+                            let scroll_img = scroll_rgba
+                                .map(crate::dds::rgba_to_slint)
+                                .unwrap_or_default();
+
+                            ui.set_preview_icon1(spell_img);
+                            ui.set_preview_icon2(scroll_img);
+                            ui.set_spell_name_disp(details.spell_name.into());
+                            ui.set_scroll_name_disp(details.scroll_name.into());
+                        });
+                    }
+                });
             });
         }
     });

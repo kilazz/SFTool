@@ -37,6 +37,13 @@ export component EditorTab inherits HorizontalLayout {
     in-out property <string> editor_field_val1: "";
     in-out property <string> editor_field_val2: "";
 
+    // Visual Previews & Dual Cards
+    in-out property <image> preview_icon1;
+    in-out property <image> preview_icon2;
+    in-out property <string> spell_name_disp: "";
+    in-out property <string> scroll_name_disp: "";
+    in-out property <string> asset_status_text: "Select a record to preview asset.";
+
     // History Undo/Redo State
     in-out property <bool> can_undo: false;
     in-out property <bool> can_redo: false;
@@ -50,6 +57,7 @@ export component EditorTab inherits HorizontalLayout {
     callback browse_file(string) -> string;
     callback save_file(string) -> string;
 
+    // Direct parameter passing avoids async synchronization delay
     callback load_editor_data(string, string, string, string);
     callback select_editor_entry(int);
     callback save_editor_entry(string, string, int, string, string, string);
@@ -394,7 +402,7 @@ export component EditorTab inherits HorizontalLayout {
         }
     }
 
-    // RIGHT PANEL: COMPACT INSPECTOR WITH UNDO / REDO / DISCARD
+    // RIGHT PANEL: VISUAL SHOWCASE & INSPECTOR
     Rectangle {
         horizontal-stretch: 1;
         background: #2b2d31;
@@ -413,7 +421,7 @@ export component EditorTab inherits HorizontalLayout {
                 alignment: space-between;
 
                 SectionTitle {
-                    text: "Entity Property & Mesh Linkage Inspector";
+                    text: "Entity Property & Visual Showcase";
                     text-color: #f0b132;
                     width: 250px;
                 }
@@ -456,6 +464,171 @@ export component EditorTab inherits HorizontalLayout {
                 }
             }
 
+            // A. DUAL CARDS FOR SPELLS MAPPING (0x07E2)
+            if root.editor_active_category == "Spells Mapping (0x07E2)": HorizontalLayout {
+                spacing: 12px;
+                alignment: center;
+                height: 125px;
+
+                // Left Card: Combat Spell
+                Rectangle {
+                    width: 180px;
+                    background: #18191b;
+                    border-color: #353535;
+                    border-width: 1px;
+                    border-radius: 6px;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 4px;
+                        alignment: center;
+
+                        Rectangle {
+                            width: 64px;
+                            height: 64px;
+                            background: #111214;
+                            border-color: #e59535;
+                            border-width: 1px;
+                            border-radius: 4px;
+                            clip: true;
+
+                            Image {
+                                source: root.preview_icon1;
+                                width: 100%;
+                                height: 100%;
+                                image-fit: contain;
+                            }
+                        }
+
+                        Text {
+                            text: root.spell_name_disp != "" ? root.spell_name_disp : "Combat Spell";
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: #f0b132;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            text: "Spell ID: " + root.editor_field_id;
+                            font-size: 10px;
+                            color: #808080;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+
+                // Center Arrow Linkage
+                VerticalLayout {
+                    alignment: center;
+                    Text {
+                        text: "➔";
+                        font-size: 22px;
+                        font-weight: 700;
+                        color: #f0b132;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Right Card: Inventory Scroll
+                Rectangle {
+                    width: 180px;
+                    background: #18191b;
+                    border-color: #353535;
+                    border-width: 1px;
+                    border-radius: 6px;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 4px;
+                        alignment: center;
+
+                        Rectangle {
+                            width: 64px;
+                            height: 64px;
+                            background: #111214;
+                            border-color: #3e6a90;
+                            border-width: 1px;
+                            border-radius: 4px;
+                            clip: true;
+
+                            Image {
+                                source: root.preview_icon2;
+                                width: 100%;
+                                height: 100%;
+                                image-fit: contain;
+                            }
+                        }
+
+                        Text {
+                            text: root.scroll_name_disp != "" ? root.scroll_name_disp : "Inventory Scroll";
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: #3e6a90;
+                            horizontal-alignment: center;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            text: "Scroll ID: " + root.editor_field_val1;
+                            font-size: 10px;
+                            color: #808080;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            // B. SINGLE LIVE PREVIEW SHOWCASE FOR 2D GFX ITEMS (0x07DC)
+            if root.editor_active_category == "2D Gfx Items (0x07DC)": HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+                height: 96px;
+
+                Rectangle {
+                    width: 96px;
+                    height: 96px;
+                    background: #111214;
+                    border-color: #f0b132;
+                    border-width: 1.5px;
+                    border-radius: 6px;
+                    clip: true;
+
+                    Image {
+                        source: root.preview_icon1;
+                        width: 100%;
+                        height: 100%;
+                        image-fit: contain;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 4px;
+                    alignment: center;
+
+                    Text {
+                        text: "Texture Asset Status:";
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: #949ba4;
+                    }
+
+                    Text {
+                        text: root.asset_status_text;
+                        font-size: 11px;
+                        font-family: "Consolas";
+                        color: #dcddde;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: #353535;
+            }
+
+            // FIELDS FORM
             FormRow {
                 title: "Record Key / ID:";
                 label-width: 130px;
@@ -526,11 +699,11 @@ export component EditorTab inherits HorizontalLayout {
             }
 
             Text {
-                text: "Multi-Language & Custom Locale Pipeline:\n" +
-                    "• 🌐 Clone Slot: Duplicate all phrases into a brand new slot (e.g. 6 -> AR/TH/PL/RU) in 1 click.\n" +
-                    "• Export Lang JSON: Generates clean, isolated language files without mixed languages.\n" +
-                    "• Import to Slot: Safely overwrite any language slot from translation JSONs.\n" +
-                    "• In-game Activation: Set 'ClientLanguage = <SlotID>' in sound/speech/langid.lua.";
+                text: "Live Visual Preview & Multi-Language Guide:\n" +
+                    "• 2D Gfx Items: Renders real DDS/TGA textures parsed directly from unpacked game textures.\n" +
+                    "• Spells Mapping: Side-by-side Dual Cards cross-referencing Combat Spell and Inventory Scroll.\n" +
+                    "• Math Architecture: str_id = (campaign << 24) | (lang_id << 16) | base_id.\n" +
+                    "• ↶ Undo / ↷ Redo: Revert changes made during current session.";
                 color: #808080;
                 font-size: 12px;
                 wrap: word-wrap;
