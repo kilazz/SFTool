@@ -9,7 +9,6 @@ import { TabButton } from "./components/buttons.slint";
 import { PakTab } from "./tabs/pak_tab.slint";
 import { CffTab } from "./tabs/cff_tab.slint";
 import { EditorTab } from "./tabs/editor_tab.slint";
-import { InspectorTab } from "./tabs/inspector_tab.slint";
 import { LuaTab } from "./tabs/lua_tab.slint";
 import { LogTab } from "./tabs/log_tab.slint";
 
@@ -48,14 +47,6 @@ export component AppWindow inherits Window {
     in-out property <string> editor_field_val1: "";
     in-out property <string> editor_field_val2: "";
 
-    // --- Inspector State ---
-    in-out property <string> selected_dat: "";
-    in-out property <string> filter_text: "";
-    in-out property <string> inspector_target_offset: "0";
-    in-out property <string> inspector_base_offset: "0";
-    in-out property <string> inspector_current_val: "No Data";
-    in-out property <[StandardListViewItem]> inspector_results: [];
-
     // --- Lua State ---
     in-out property <string> lua_src_dir: "";
     in-out property <string> lua_out_dir: "";
@@ -90,12 +81,6 @@ export component AppWindow inherits Window {
     callback select_editor_entry(int);
     callback save_editor_entry(string, string, int, string, string, string);
 
-    // Callbacks: Inspector
-    callback scan_binary(string, string);
-    callback read_value(string, string, string) -> string;
-    callback write_value(string, string, string, string);
-    callback inspector_select_row(int);
-
     // Callbacks: Lua
     callback decompile_lua(string, string, string, bool);
     callback check_lua_syntax(string, string);
@@ -105,7 +90,7 @@ export component AppWindow inherits Window {
         padding: 12px;
         spacing: 10px;
 
-        // TOP NAVIGATION TABS (Modular TabButtons)
+        // TOP NAVIGATION TABS (5 Clean Modular Tabs)
         HorizontalLayout {
             spacing: 6px;
             alignment: start;
@@ -133,24 +118,17 @@ export component AppWindow inherits Window {
             }
 
             TabButton {
-                text: "Chunk Inspector";
+                text: "Lua 4.0 Scripts";
                 active: root.active_tab == 3;
-                accent-color: #8a5cf6;
+                accent-color: #3e6a90;
                 clicked => { root.active_tab = 3; }
             }
 
             TabButton {
-                text: "Lua 4.0 Scripts";
-                active: root.active_tab == 4;
-                accent-color: #3e6a90;
-                clicked => { root.active_tab = 4; }
-            }
-
-            TabButton {
                 text: "Terminal Log";
-                active: root.active_tab == 5;
+                active: root.active_tab == 4;
                 accent-color: #e59535;
-                clicked => { root.active_tab = 5; }
+                clicked => { root.active_tab = 4; }
             }
 
             Rectangle {
@@ -215,23 +193,7 @@ export component AppWindow inherits Window {
                 save_editor_entry(dir, cat, idx, id, v1, v2) => { root.save_editor_entry(dir, cat, idx, id, v1, v2) }
             }
 
-            if root.active_tab == 3: InspectorTab {
-                sidebar_width <=> root.sidebar_width;
-                selected_dat <=> root.selected_dat;
-                filter_text <=> root.filter_text;
-                inspector_target_offset <=> root.inspector_target_offset;
-                inspector_base_offset <=> root.inspector_base_offset;
-                inspector_current_val <=> root.inspector_current_val;
-                inspector_results: root.inspector_results;
-
-                browse_file(ext) => { root.browse_file(ext) }
-                scan_binary(dat, flt) => { root.scan_binary(dat, flt) }
-                read_value(dat, off, dt) => { root.read_value(dat, off, dt) }
-                write_value(dat, off, dt, val) => { root.write_value(dat, off, dt, val) }
-                inspector_select_row(idx) => { root.inspector_select_row(idx) }
-            }
-
-            if root.active_tab == 4: LuaTab {
+            if root.active_tab == 3: LuaTab {
                 sidebar_width <=> root.sidebar_width;
                 lua_src_dir <=> root.lua_src_dir;
                 lua_out_dir <=> root.lua_out_dir;
@@ -246,7 +208,7 @@ export component AppWindow inherits Window {
                 format_lua_scripts(s, tabs) => { root.format_lua_scripts(s, tabs) }
             }
 
-            if root.active_tab == 5: LogTab {
+            if root.active_tab == 4: LogTab {
                 log_text: root.log_text;
             }
         }

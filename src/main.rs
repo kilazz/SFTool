@@ -1,11 +1,10 @@
 slint::include_modules!();
 
 mod cff;
-mod inspector;
 mod lua;
 mod pak;
 
-use slint::{Model, ModelRc, SharedString, StandardListViewItem, VecModel};
+use slint::{ModelRc, SharedString, StandardListViewItem, VecModel};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -36,7 +35,7 @@ fn make_cli_logger() -> (UiLogger, thread::JoinHandle<()>) {
 fn print_help() {
     println!(
         "\
-SFTool - SpellForce Modding, Localization & Scripting Suite (CLI Mode)
+SFTool v2.1 - SpellForce Modding, Localization & Scripting Suite (CLI Mode)
 Usage: SFTool <command> [arguments...]
 
 PAK & VFS Commands:
@@ -588,64 +587,6 @@ fn run_gui() -> Result<(), slint::PlatformError> {
                 let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                     ui.set_status_msg("Changes saved to disk.".into());
                 });
-            }
-        });
-    });
-
-    // ---------------- BINARY INSPECTOR ----------------
-    let ui_weak_scan = ui_handle.clone();
-    ui.on_scan_binary(move |dat, filter| {
-        let path = PathBuf::from(dat.as_str());
-        let filter_str = filter.as_str();
-
-        let items = inspector::scan_strings(&path, filter_str);
-
-        let mut slint_items: Vec<StandardListViewItem> = Vec::new();
-        for (offset, val) in items {
-            let text = format!("0x{:04X} ({}) | {}", offset, offset, val);
-            slint_items.push(StandardListViewItem::from(SharedString::from(text)));
-        }
-
-        let _ = ui_weak_scan.upgrade_in_event_loop(move |ui| {
-            let slint_model = ModelRc::from(Rc::new(VecModel::from(slint_items)));
-            ui.set_inspector_results(slint_model);
-            ui.set_status_msg("Binary scan complete.".into());
-        });
-    });
-
-    ui.on_read_value(|dat, offset, dtype| {
-        inspector::read_val(dat.as_str(), offset.as_str(), dtype.as_str()).into()
-    });
-
-    let logger_inspector = logger_base.clone();
-    ui.on_write_value(move |dat, offset, dtype, new_val| {
-        if let Err(e) = inspector::write_val(
-            dat.as_str(),
-            offset.as_str(),
-            dtype.as_str(),
-            new_val.as_str(),
-        ) {
-            logger_inspector.log(&format!("[!] Inspector Write Error: {}", e));
-        } else {
-            logger_inspector.log(&format!(
-                "[+] Successfully wrote {} at offset {} to file.",
-                new_val, offset
-            ));
-        }
-    });
-
-    let ui_weak_insp = ui_handle.clone();
-    ui.on_inspector_select_row(move |row_idx| {
-        let _ = ui_weak_insp.upgrade_in_event_loop(move |ui| {
-            let model = ui.get_inspector_results();
-            if let Some(item) = model.row_data(row_idx as usize) {
-                let text = item.text.as_str();
-                if let Some(part) = text.split('(').nth(1)
-                    && let Some(dec_str) = part.split(')').next()
-                {
-                    ui.set_inspector_base_offset(dec_str.into());
-                    ui.set_inspector_target_offset(dec_str.into());
-                }
             }
         });
     });
