@@ -1,14 +1,5 @@
 ---
 
-# `SPELLFORCE_INTERNALS.md`
-
-# SpellForce 1 & 2 Engine Internals & Reverse-Engineering Specification
-**Author:** kilazz (`SFTool`)  
-**Target Engines:** Phenomic Game Development Engine (DirectX 8/9, 32-bit x86)  
-**Supported Games:** *SpellForce: The Order of Dawn*, *The Breath of Winter*, *Shadow of the Phoenix* (v1.50 - v1.61), *SpellForce 2: Shadow Wars*, *Dragon Storm*, *Faith in Destiny*, *Demons of the Past*, *Anniversary Edition*.
-
----
-
 ## 1. PAK Archive & Virtual File System (VFS)
 
 ### 1.1. SpellForce 1 — `MASSIVE PAKFILE V 4.0`
@@ -56,14 +47,16 @@ struct SF1FileEntry {
 
 #### The In-Engine 16-Bit K&R Path Hash (`FUN_004a4180`)
 Inside `SpellForce.exe`, file lookup is accelerated by prepending a 2-byte hash to each filename in the String Table:
-$$\text{hash} = \sum (\text{hash} \times 31 + \text{char}) \ \& \ \text{0xFFFF}$$
+
+$$\text{hash} = \left( \sum (\text{hash} \times 31 + \text{char}) \right) \operatorname{AND} \text{0xFFFF}$$
 
 * **Sorting Comparator:** Binary search inside the archive requires records to be sorted strictly by:
   `hash_high_byte -> hash_low_byte -> reversed_path_string`.
 * **String Table Alignment Bug (`D3DERR_INVALIDCALL`):**
   DirectX 8/9 vertex and index buffer upload routines expect file data offsets to be aligned to **4-byte DWORD boundaries**. If the String Table ends on an unaligned byte, the graphics driver crashes upon reading meshes.
   * **Fix:** The String Table must be padded with zeroes:
-    $$\text{pad} = (4 - (\text{str\_table\_len} \pmod 4)) \pmod 4$$
+
+    $$\text{pad} = (4 - (\text{str\\_table\\_len} \pmod 4)) \pmod 4$$
 
 #### Custom CRC32 Algorithm
 Standard IEEE 802.3 polynomial (`0xEDB88320`), but **without final bitwise XOR inversion**:
@@ -91,7 +84,7 @@ fn calculate_sf1_crc(data: &[u8], prev_crc: u32) -> u32 {
     * `name_length: i32`
     * `filename_bytes: [u8; name_length]` (Windows-1252/1251, lowercase, backslashes)
     * `offset: u32`
-    * `next_offset: u32` ($\text{size} = \text{next\_offset} - \text{offset}$)
+    * `next_offset: u32` (`size = next_offset - offset`)
 
 ---
 
@@ -111,13 +104,16 @@ fn calculate_sf1_crc(data: &[u8], prev_crc: u32) -> u32 {
 
 ### 2.2. The 8,192 Chunk Limit (`CChunkFile` Object Layout)
 Inside `SpellForce.exe`, `CGameDatabase::Load` allocates:
+
 $$\text{Allocation Size} = \mathbf{\text{0x2803C}}\text{ bytes (163,900 bytes)}.$$
 
 #### Architectural Deconstruction
 * Base structure / VFS handles: `0x38` bytes.
 * Chunk Table of Contents (TOC) array: `0x28000` bytes (163,840 bytes).
 * Stride per TOC entry: **20 bytes**.
+
 $$\text{Max Chunks} = \frac{163,840}{20} = \mathbf{8,192\text{ chunks}}.$$
+
 * Offset `0x28038`: Active chunk count (`uint32`).
 * Search algorithm (`FUN_005a4670`): Scans the 20-byte TOC array matching:
   `chunk_id == target_id && occurrence == 0 && c_type == target_type`.
@@ -182,7 +178,8 @@ Disassembled from `CGameDatabase::Load` (`FUN_0091a930`):
 * `0x36..0x236` (`512 bytes`): Null-terminated string buffer.
 
 ### 3.2. Mathematical Bitmask Architecture of `str_id`
-$$\text{str\_id} = (\text{CampaignID} \ll 24) \ | \ (\text{LanguageID} \ll 16) \ | \ \text{BaseID}$$
+
+$$\text{str\\_id} = (\text{CampaignID} \ll 24) \mid (\text{LanguageID} \ll 16) \mid \text{BaseID}$$
 
 ```rust
 let base_id = (str_id & 0xFFFF) as u16;          // Bits 0..15: String index
@@ -237,9 +234,9 @@ Inside `SpellForce.exe`, `GameData.cff` is loaded by two separate subsystems:
 ### 5.1. Item Presentation (`2dGfxItems` 0x07DC)
 Each item connects to graphic assets through its 69-byte descriptor:
 ```text
-Item Record (ItemID) 
+Item Record (ItemID)
      │
-     └── 2dGfxItems [ItemID, Flag] 
+     └── 2dGfxItems [ItemID, Flag]
               │
               ├── Flag 1: Inventory Scroll / Item Icon (ui_item_...msh -> .dds)
               └── Flag 2: Spellbook / Action Bar Icon (ui_spell_...msh -> .dds)
@@ -247,6 +244,7 @@ Item Record (ItemID)
 
 ### 5.2. Spell Linking (`SpellsBiMap` 0x07E2)
 Spell casting logic is strictly decoupled from inventory scrolls:
+
 $$\text{Spell ID (Combat Spell Entity)} \xleftrightarrow[\text{0x07E2}]{\text{BiMap}} \text{Scroll ID (Inventory Item Entity)}$$
 
 ---
