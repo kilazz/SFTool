@@ -664,11 +664,12 @@ pub fn delete_editor_item(
 }
 
 // -----------------------------------------------------------------------------
-// TEXTURE SEARCH & SPELL CROSS-REFERENCE ENGINE
+// HYBRID TEXTURE SEARCH & SPELL CROSS-REFERENCE ENGINE
 // -----------------------------------------------------------------------------
 
 pub fn find_and_load_texture(
     cff_dir: &Path,
+    asset_source: &Path,
     mesh_name: &str,
 ) -> Option<(image::RgbaImage, String)> {
     let clean_name = mesh_name
@@ -681,44 +682,106 @@ pub fn find_and_load_texture(
     }
 
     let extensions = ["dds", "tga", "png"];
-    let mut search_dirs = Vec::new();
 
-    search_dirs.push(cff_dir.join("textures"));
-    search_dirs.push(cff_dir.join("textures").join("gui"));
-    search_dirs.push(cff_dir.join("textures").join("ui"));
-
-    if let Some(parent) = cff_dir.parent() {
-        search_dirs.push(parent.join("textures"));
-        search_dirs.push(parent.join("textures").join("gui"));
-        search_dirs.push(parent.join("textures").join("ui"));
-        if let Some(grandparent) = parent.parent() {
-            search_dirs.push(grandparent.join("textures"));
-            search_dirs.push(grandparent.join("textures").join("gui"));
-            search_dirs.push(grandparent.join("textures").join("ui"));
+    // 1. Direct explicit asset source (File or Folder)
+    if asset_source.is_file() {
+        if let Some((bytes, fname)) =
+            crate::pak::read_file_from_pak(asset_source, clean_name, &extensions)
+        {
+            return decode_raw_texture_bytes(&bytes, &fname);
         }
-    }
-
-    for dir in search_dirs {
-        if !dir.exists() {
-            continue;
+    } else if asset_source.is_dir() {
+        // A. Check loose files in asset_source
+        if let Some(res) = check_loose_texture_dirs(asset_source, clean_name, &extensions) {
+            return Some(res);
         }
-        for ext in &extensions {
-            let file_path = dir.join(format!("{}.{}", clean_name, ext));
-            if file_path.exists()
-                && let Ok(bytes) = fs::read(&file_path)
-            {
-                let filename = file_path.file_name().unwrap().to_string_lossy().to_string();
-                if *ext == "dds" {
-                    if let Ok(rgba) = crate::dds::decode_dds_to_rgba(&bytes, Some(128)) {
-                        return Some((rgba, filename));
-                    }
-                } else if let Ok(dyn_img) = image::load_from_memory(&bytes) {
-                    return Some((dyn_img.into_rgba8(), filename));
+        // B. Check all .pak archives located in asset_source
+        if let Ok(entries) = fs::read_dir(asset_source) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let p = entry.path();
+                if p.is_file()
+                    && p.extension().and_then(|s| s.to_str()) == Some("pak")
+                    && let Some((bytes, fname)) =
+                        crate::pak::read_file_from_pak(&p, clean_name, &extensions)
+                {
+                    return decode_raw_texture_bytes(&bytes, &fname);
                 }
             }
         }
     }
 
+    // 2. Relative search around cff_dir (loose files and PAKs in parent folders)
+    let mut search_dirs = Vec::new();
+    search_dirs.push(cff_dir.to_path_buf());
+    if let Some(p) = cff_dir.parent() {
+        search_dirs.push(p.to_path_buf());
+        if let Some(gp) = p.parent() {
+            search_dirs.push(gp.to_path_buf());
+        }
+    }
+
+    for dir in &search_dirs {
+        // Check loose files
+        if let Some(res) = check_loose_texture_dirs(dir, clean_name, &extensions) {
+            return Some(res);
+        }
+        // Check any .pak archives in data folder (e.g. sf0.pak, sf1.pak)
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let p = entry.path();
+                if p.is_file()
+                    && p.extension().and_then(|s| s.to_str()) == Some("pak")
+                    && let Some((bytes, fname)) =
+                        crate::pak::read_file_from_pak(&p, clean_name, &extensions)
+                {
+                    return decode_raw_texture_bytes(&bytes, &fname);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn check_loose_texture_dirs(
+    base_dir: &Path,
+    clean_name: &str,
+    extensions: &[&str],
+) -> Option<(image::RgbaImage, String)> {
+    let check_dirs = vec![
+        base_dir.to_path_buf(),
+        base_dir.join("textures"),
+        base_dir.join("textures").join("gui"),
+        base_dir.join("textures").join("ui"),
+        base_dir.join("ui"),
+        base_dir.join("gui"),
+    ];
+
+    for d in check_dirs {
+        if !d.is_dir() {
+            continue;
+        }
+        for ext in extensions {
+            let f = d.join(format!("{}.{}", clean_name, ext));
+            if f.is_file()
+                && let Ok(bytes) = fs::read(&f)
+            {
+                let fname = f.file_name().unwrap().to_string_lossy().to_string();
+                return decode_raw_texture_bytes(&bytes, &fname);
+            }
+        }
+    }
+    None
+}
+
+fn decode_raw_texture_bytes(bytes: &[u8], filename: &str) -> Option<(image::RgbaImage, String)> {
+    if filename.to_lowercase().ends_with(".dds") {
+        if let Ok(rgba) = crate::dds::decode_dds_to_rgba(bytes, Some(128)) {
+            return Some((rgba, filename.to_string()));
+        }
+    } else if let Ok(dyn_img) = image::load_from_memory(bytes) {
+        return Some((dyn_img.into_rgba8(), filename.to_string()));
+    }
     None
 }
 

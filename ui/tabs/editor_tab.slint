@@ -20,6 +20,7 @@ export component EditorTab inherits HorizontalLayout {
     in-out property <length> sidebar_width: 460px;
 
     in-out property <string> editor_cff_dir: "";
+    in-out property <string> editor_asset_source: "";
     in-out property <string> editor_filter: "";
     in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
     in-out property <string> editor_lang_filter: "All Languages";
@@ -57,7 +58,6 @@ export component EditorTab inherits HorizontalLayout {
     callback browse_file(string) -> string;
     callback save_file(string) -> string;
 
-    // Direct parameter passing avoids async synchronization delay
     callback load_editor_data(string, string, string, string);
     callback select_editor_entry(int);
     callback save_editor_entry(string, string, int, string, string, string);
@@ -208,6 +208,48 @@ export component EditorTab inherits HorizontalLayout {
                                     let f = root.browse_folder();
                                     if (f != "") {
                                         root.editor_cff_dir = f;
+                                        root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, root.editor_lang_filter);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    FormRow {
+                        title: "Asset Source:";
+                        HorizontalLayout {
+                            spacing: 4px;
+                            LineEdit {
+                                text <=> root.editor_asset_source;
+                                placeholder-text: "Optional: .pak file or textures folder...";
+                                height: 28px;
+                                font-family: "Consolas";
+                                font-size: 11px;
+                            }
+
+                            CustomButton {
+                                text: "📁";
+                                compact: true;
+                                width: 28px;
+                                height: 28px;
+                                clicked => {
+                                    let f = root.browse_folder();
+                                    if (f != "") {
+                                        root.editor_asset_source = f;
+                                        root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, root.editor_lang_filter);
+                                    }
+                                }
+                            }
+
+                            CustomButton {
+                                text: "📦";
+                                compact: true;
+                                width: 28px;
+                                height: 28px;
+                                clicked => {
+                                    let f = root.browse_file("pak");
+                                    if (f != "") {
+                                        root.editor_asset_source = f;
                                         root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, root.editor_lang_filter);
                                     }
                                 }
@@ -700,7 +742,7 @@ export component EditorTab inherits HorizontalLayout {
 
             Text {
                 text: "Live Visual Preview & Multi-Language Guide:\n" +
-                    "• 2D Gfx Items: Renders real DDS/TGA textures parsed directly from unpacked game textures.\n" +
+                    "• 2D Gfx Items: Renders real DDS/TGA textures parsed directly from unpacked game textures or PAK archives.\n" +
                     "• Spells Mapping: Side-by-side Dual Cards cross-referencing Combat Spell and Inventory Scroll.\n" +
                     "• Math Architecture: str_id = (campaign << 24) | (lang_id << 16) | base_id.\n" +
                     "• ↶ Undo / ↷ Redo: Revert changes made during current session.";

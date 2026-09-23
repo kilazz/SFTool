@@ -39,6 +39,7 @@ export component AppWindow inherits Window {
 
     // --- Balance Editor State ---
     in-out property <string> editor_cff_dir: "";
+    in-out property <string> editor_asset_source: "";
     in-out property <string> editor_filter: "";
     in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
     in-out property <string> editor_lang_filter: "All Languages";
@@ -223,6 +224,7 @@ export component AppWindow inherits Window {
             if root.active_tab == 2: EditorTab {
                 sidebar_width <=> root.sidebar_width;
                 editor_cff_dir <=> root.editor_cff_dir;
+                editor_asset_source <=> root.editor_asset_source;
                 editor_filter <=> root.editor_filter;
                 editor_active_category <=> root.editor_active_category;
                 editor_lang_filter <=> root.editor_lang_filter;

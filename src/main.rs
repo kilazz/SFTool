@@ -346,7 +346,6 @@ fn run_gui() -> Result<(), slint::PlatformError> {
     ui.set_log_text("System Ready.\n".into());
     ui.set_status_msg("Ready.".into());
 
-    // Auto-discover tool paths from /bin
     let (default_luadec, default_luac4, _, _) = tools::get_default_toolpaths();
     ui.set_luadec_path(default_luadec.to_string_lossy().into_owned().into());
     ui.set_luac_path(default_luac4.to_string_lossy().into_owned().into());
@@ -660,10 +659,13 @@ fn run_gui() -> Result<(), slint::PlatformError> {
 
                 let cat = ui.get_editor_active_category();
                 let dir = PathBuf::from(ui.get_editor_cff_dir().as_str());
+                let asset_src = PathBuf::from(ui.get_editor_asset_source().as_str());
 
                 thread::spawn(move || {
                     if cat == "2D Gfx Items (0x07DC)" {
-                        if let Some((rgba, fname)) = cff::find_and_load_texture(&dir, &val1) {
+                        if let Some((rgba, fname)) =
+                            cff::find_and_load_texture(&dir, &asset_src, &val1)
+                        {
                             let status = format!("Loaded: {}", fname);
                             let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                                 ui.set_preview_icon1(crate::dds::rgba_to_slint(rgba));
@@ -681,11 +683,13 @@ fn run_gui() -> Result<(), slint::PlatformError> {
                         let scroll_id = val1.parse::<u16>().unwrap_or(0);
                         let details = cff::resolve_spell_cross_reference(&dir, spell_id, scroll_id);
 
-                        let spell_rgba = cff::find_and_load_texture(&dir, &details.spell_mesh)
-                            .map(|(rgba, _)| rgba);
+                        let spell_rgba =
+                            cff::find_and_load_texture(&dir, &asset_src, &details.spell_mesh)
+                                .map(|(rgba, _)| rgba);
 
-                        let scroll_rgba = cff::find_and_load_texture(&dir, &details.scroll_mesh)
-                            .map(|(rgba, _)| rgba);
+                        let scroll_rgba =
+                            cff::find_and_load_texture(&dir, &asset_src, &details.scroll_mesh)
+                                .map(|(rgba, _)| rgba);
 
                         let _ = ui_weak.upgrade_in_event_loop(move |ui| {
                             let spell_img = spell_rgba

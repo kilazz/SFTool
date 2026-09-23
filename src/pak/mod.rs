@@ -217,3 +217,114 @@ pub fn batch_pack_folders(
     ));
     Ok(())
 }
+
+/// Reads a specific file directly from an SF1 or SF2 .PAK archive into memory on the fly.
+pub fn read_file_from_pak(
+    pak_path: &Path,
+    target_stem: &str,
+    extensions: &[&str],
+) -> Option<(Vec<u8>, String)> {
+    let mut f = File::open(pak_path).ok()?;
+    let total_len = f.seek(SeekFrom::End(0)).ok()?;
+    if total_len < 28 {
+        return None;
+    }
+
+    // 1. Try SpellForce 1 (MASSIVE PAKFILE V 4.0)
+    f.seek(SeekFrom::Start(0)).ok()?;
+    if f.read_u32::<LittleEndian>().ok()? == 4 {
+        let mut magic = [0u8; 24];
+        f.read_exact(&mut magic).ok()?;
+        if magic.starts_with(b"MASSIVE PAKFILE") {
+            f.seek(SeekFrom::Start(76)).ok()?;
+            let num_files = f.read_u32::<LittleEndian>().ok()?;
+            let _root_idx = f.read_u32::<LittleEndian>().ok()?;
+            let data_start = f.read_u32::<LittleEndian>().ok()?;
+
+            f.seek(SeekFrom::Start(92)).ok()?;
+            let mut entries = Vec::with_capacity(num_files as usize);
+            for _ in 0..num_files {
+                let size = f.read_u32::<LittleEndian>().ok()?;
+                let offset = f.read_u32::<LittleEndian>().ok()?;
+                let name_off = f.read_u32::<LittleEndian>().ok()? & 0x00FFFFFF;
+                let dir_off = f.read_u32::<LittleEndian>().ok()? & 0x00FFFFFF;
+                entries.push((size, offset, name_off, dir_off));
+            }
+
+            let name_list_start = f.stream_position().ok()?;
+            let meta_len = (data_start as u64).saturating_sub(name_list_start);
+            let mut meta_data = vec![0u8; meta_len as usize];
+            f.read_exact(&mut meta_data).ok()?;
+
+            let stem_lower = target_stem.to_lowercase();
+
+            for (size, offset, name_off, _dir_off) in entries {
+                let file_name =
+                    sf1::read_reversed_string_from_bytes(&meta_data, name_off as usize + 2);
+                let fn_lower = file_name.to_lowercase();
+
+                for ext in extensions {
+                    let expected = format!("{}.{}", stem_lower, ext);
+                    if fn_lower == expected
+                        || fn_lower.ends_with(&format!("/{}", expected))
+                        || fn_lower.ends_with(&format!("\\{}", expected))
+                    {
+                        f.seek(SeekFrom::Start((data_start + offset) as u64)).ok()?;
+                        let mut buf = vec![0u8; size as usize];
+                        f.read_exact(&mut buf).ok()?;
+                        return Some((buf, file_name));
+                    }
+                }
+            }
+            return None;
+        }
+    }
+
+    // 2. Try SpellForce 2 (PAK\x01)
+    f.seek(SeekFrom::Start(0)).ok()?;
+    let mut magic = [0u8; 3];
+    f.read_exact(&mut magic).ok()?;
+    let version = f.read_u8().ok()?;
+
+    if &magic == b"PAK" && version == 1 {
+        let dir_offset = f.read_u32::<LittleEndian>().ok()?;
+        let _uncomp_size = f.read_u32::<LittleEndian>().ok()?;
+        let comp_size = f.read_u32::<LittleEndian>().ok()?;
+
+        f.seek(SeekFrom::Start(dir_offset as u64)).ok()?;
+        let mut comp_data = vec![0u8; comp_size as usize];
+        f.read_exact(&mut comp_data).ok()?;
+
+        let mut uncomp_data = Vec::new();
+        let mut decoder = ZlibDecoder::new(comp_data.as_slice());
+        decoder.read_to_end(&mut uncomp_data).ok()?;
+
+        let mut cursor = io::Cursor::new(&uncomp_data);
+        let file_count = cursor.read_i32::<LittleEndian>().ok()?;
+        let stem_lower = target_stem.to_lowercase();
+
+        for _ in 0..file_count {
+            let name_len = cursor.read_i32::<LittleEndian>().ok()?;
+            let mut name_bytes = vec![0u8; name_len as usize];
+            cursor.read_exact(&mut name_bytes).ok()?;
+            let f_offset = cursor.read_u32::<LittleEndian>().ok()?;
+            let next_offset = cursor.read_u32::<LittleEndian>().ok()?;
+            let size = next_offset.saturating_sub(f_offset);
+
+            let filename = crate::cff::decode_windows(&name_bytes).replace('\\', "/");
+            let fn_lower = filename.to_lowercase();
+
+            for ext in extensions {
+                let expected = format!("{}.{}", stem_lower, ext);
+                if fn_lower == expected || fn_lower.ends_with(&format!("/{}", expected)) {
+                    f.seek(SeekFrom::Start(f_offset as u64)).ok()?;
+                    let mut buf = vec![0u8; size as usize];
+                    f.read_exact(&mut buf).ok()?;
+                    return Some((buf, filename));
+                }
+            }
+        }
+    }
+
+    None
+}
