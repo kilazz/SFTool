@@ -16,23 +16,42 @@ import {
 } from "../components/common.slint";
 
 export component EditorTab inherits HorizontalLayout {
-    in-out property <length> sidebar_width: 440px;
+    in-out property <length> sidebar_width: 460px;
 
     in-out property <string> editor_cff_dir: "";
     in-out property <string> editor_filter: "";
     in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
+    in-out property <string> editor_lang_filter: "All Languages";
     in-out property <[StandardListViewItem]> editor_entries: [];
     in-out property <int> editor_selected_idx: -1;
     in-out property <string> editor_field_id: "";
     in-out property <string> editor_field_val1: "";
     in-out property <string> editor_field_val2: "";
 
+    // History Undo/Redo State
+    in-out property <bool> can_undo: false;
+    in-out property <bool> can_redo: false;
+
     callback browse_folder() -> string;
-    callback load_editor_data(string, string);
+    callback browse_file(string) -> string;
+    callback save_file(string) -> string;
+
+    // Direct parameter passing avoids async synchronization delay
+    callback load_editor_data(string, string, string, string);
     callback select_editor_entry(int);
     callback save_editor_entry(string, string, int, string, string, string);
     callback add_editor_entry(string, string);
     callback duplicate_editor_entry(string, string, int, string);
+    callback delete_editor_entry(string, string, int, string);
+
+    // History Callbacks (Undo / Redo)
+    callback editor_undo();
+    callback editor_redo();
+
+    // Unified Multi-Language Callbacks
+    callback export_single_language(string, string, string);
+    callback import_language_to_slot(string, string, string);
+    callback clone_language_slot(string, int, int);
 
     spacing: 0px;
 
@@ -49,7 +68,7 @@ export component EditorTab inherits HorizontalLayout {
             spacing: 10px;
 
             PanelSection {
-                title: "Target Database";
+                title: "Target Database & Active Scope";
                 title-color: #f0b132;
                 VerticalLayout {
                     spacing: 6px;
@@ -74,7 +93,7 @@ export component EditorTab inherits HorizontalLayout {
                                     let f = root.browse_folder();
                                     if (f != "") {
                                         root.editor_cff_dir = f;
-                                        root.load_editor_data(root.editor_cff_dir, root.editor_active_category);
+                                        root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, root.editor_lang_filter);
                                     }
                                 }
                             }
@@ -87,8 +106,30 @@ export component EditorTab inherits HorizontalLayout {
                             model: ["2D Gfx Items (0x07DC)", "Spells Mapping (0x07E2)", "Localized Strings"];
                             current-value <=> root.editor_active_category;
                             height: 28px;
-                            selected => {
-                                root.load_editor_data(root.editor_cff_dir, root.editor_active_category);
+                            selected(cat) => {
+                                root.editor_active_category = cat;
+                                root.load_editor_data(root.editor_cff_dir, cat, root.editor_filter, root.editor_lang_filter);
+                            }
+                        }
+                    }
+
+                    if root.editor_active_category == "Localized Strings": FormRow {
+                        title: "Language:";
+                        ComboBox {
+                            model: [
+                                "All Languages",
+                                "Slot 0: German (DE)",
+                                "Slot 1: English (EN)",
+                                "Slot 2: French (FR)",
+                                "Slot 3: Spanish (ES)",
+                                "Slot 4: Italian (IT)",
+                                "Slot 5: Custom (RU/PL/etc.)"
+                            ];
+                            current-value <=> root.editor_lang_filter;
+                            height: 28px;
+                            selected(lang) => {
+                                root.editor_lang_filter = lang;
+                                root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, lang);
                             }
                         }
                     }
@@ -97,11 +138,13 @@ export component EditorTab inherits HorizontalLayout {
                         title: "Filter:";
                         LineEdit {
                             text <=> root.editor_filter;
-                            placeholder-text: "Search ID or name...";
+                            placeholder-text: "Filter by ID, mesh or phrase...";
                             height: 28px;
                             font-family: "Consolas";
                             font-size: 11px;
-                            edited => { root.load_editor_data(root.editor_cff_dir, root.editor_active_category); }
+                            edited => {
+                                root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, root.editor_lang_filter);
+                            }
                         }
                     }
                 }
@@ -113,7 +156,7 @@ export component EditorTab inherits HorizontalLayout {
                     spacing: 8px;
                     vertical-stretch: 1;
 
-                    // Quick Action Buttons
+                    // Action Controls: Add, Duplicate, Delete
                     HorizontalLayout {
                         spacing: 6px;
                         CustomButton {
@@ -126,7 +169,7 @@ export component EditorTab inherits HorizontalLayout {
                         }
 
                         CustomButton {
-                            text: "Duplicate Selected";
+                            text: "Duplicate";
                             primary-color: #e59535;
                             enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "";
                             clicked => {
@@ -137,9 +180,50 @@ export component EditorTab inherits HorizontalLayout {
                                     root.editor_field_id);
                             }
                         }
+
+                        CustomButton {
+                            text: "Delete";
+                            primary-color: #aa3838;
+                            enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "";
+                            clicked => {
+                                root.delete_editor_entry(
+                                    root.editor_cff_dir,
+                                    root.editor_active_category,
+                                    root.editor_selected_idx,
+                                    root.editor_field_id);
+                            }
+                        }
                     }
 
-                    // Adaptive List View
+                    // Unified Language Slot Management Tools
+                    if root.editor_active_category == "Localized Strings": HorizontalLayout {
+                        spacing: 6px;
+                        CustomButton {
+                            text: "Export Lang JSON...";
+                            primary-color: #3e6a90;
+                            enabled: root.editor_cff_dir != "";
+                            clicked => {
+                                let target_f = root.save_file("json");
+                                if (target_f != "") {
+                                    root.export_single_language(root.editor_cff_dir, root.editor_lang_filter, target_f);
+                                }
+                            }
+                        }
+
+                        CustomButton {
+                            text: "Import to Slot...";
+                            primary-color: #4e5058;
+                            enabled: root.editor_cff_dir != "";
+                            clicked => {
+                                let src_f = root.browse_file("json");
+                                if (src_f != "") {
+                                    root.import_language_to_slot(root.editor_cff_dir, root.editor_lang_filter, src_f);
+                                }
+                            }
+                        }
+                    }
+
+                    // Adaptive Height Virtual List
                     Rectangle {
                         background: #111214;
                         border-color: #1f2023;
@@ -180,7 +264,7 @@ export component EditorTab inherits HorizontalLayout {
         }
     }
 
-    // DRAGGABLE SPLITTER
+    // RESIZE SPLITTER
     Rectangle {
         width: 8px;
         background: splitter-ta.has-hover ? #474747 : #181818;
@@ -204,7 +288,7 @@ export component EditorTab inherits HorizontalLayout {
         }
     }
 
-    // RIGHT PANEL: FIXED COMPACT INSPECTOR
+    // RIGHT PANEL: COMPACT INSPECTOR WITH UNDO / REDO / DISCARD
     Rectangle {
         horizontal-stretch: 1;
         background: #2b2d31;
@@ -218,9 +302,52 @@ export component EditorTab inherits HorizontalLayout {
             spacing: 12px;
             alignment: start;
 
-            SectionTitle {
-                text: "Entity Property & Mesh Linkage Inspector";
-                text-color: #f0b132;
+            // Inspector Header with Undo / Redo / Discard Controls
+            HorizontalLayout {
+                alignment: space-between;
+
+                SectionTitle {
+                    text: "Entity Property & Mesh Linkage Inspector";
+                    text-color: #f0b132;
+                    width: 250px;
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: end;
+
+                    CustomButton {
+                        text: "↶ Undo";
+                        compact: true;
+                        width: 65px;
+                        height: 24px;
+                        primary-color: #4e5058;
+                        enabled: root.can_undo;
+                        clicked => { root.editor_undo(); }
+                    }
+
+                    CustomButton {
+                        text: "↷ Redo";
+                        compact: true;
+                        width: 65px;
+                        height: 24px;
+                        primary-color: #4e5058;
+                        enabled: root.can_redo;
+                        clicked => { root.editor_redo(); }
+                    }
+
+                    CustomButton {
+                        text: "↺ Discard";
+                        compact: true;
+                        width: 70px;
+                        height: 24px;
+                        primary-color: #353535;
+                        enabled: root.editor_selected_idx >= 0;
+                        clicked => {
+                            root.select_editor_entry(root.editor_selected_idx);
+                        }
+                    }
+                }
             }
 
             FormRow {
@@ -234,7 +361,6 @@ export component EditorTab inherits HorizontalLayout {
                 }
             }
 
-            // ЕСЛИ ВЫБРАНЫ ТЕКСТЫ — МНОГОСТРОЧНЫЙ TEXTEDIT
             if root.editor_active_category == "Localized Strings": VerticalLayout {
                 spacing: 4px;
                 Text {
@@ -294,12 +420,12 @@ export component EditorTab inherits HorizontalLayout {
             }
 
             Text {
-                text: "Quick Guide:\n" +
-                    "• + Add Entry: Creates a brand new record with (Max ID + 1).\n" +
-                    "• Duplicate: Clones properties of the currently selected item under a new ID.\n" +
-                    "• 2D Gfx Items: Notice duplicate IDs are valid in SF1 (e.g. one for scroll inventory, one for spellbook).\n" +
-                    "• Localized Strings: Edit quest and item text across all campaign languages.\n\n" +
-                    "All modified chunks compile cleanly back into .CFF with verified DWORD alignment.";
+                text: "Unified Multi-Language System:\n" +
+                    "• Math Architecture: str_id = (campaign << 24) | (lang_id << 16) | base_id.\n" +
+                    "• Slots 0-4 (DE, EN, FR, ES, IT): Native European encoding (Windows-1252).\n" +
+                    "• Slot 5+ (RU/Custom): Cyrillic & custom encoding (Windows-1251).\n" +
+                    "• ↶ Undo / ↷ Redo: Revert or reapply changes made during session.\n" +
+                    "• ↺ Discard: Clear unsaved inputs back to saved state.";
                 color: #808080;
                 font-size: 12px;
                 wrap: word-wrap;

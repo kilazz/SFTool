@@ -134,9 +134,9 @@ struct ChunkMeta {
 enum ChunkFormat {
     Binary,
     Fixed566,
-    StringTable,              // Format A
-    DeveloperTable,           // Format C
-    TableBased(usize, usize), // Format B: (num_strings, extra_bytes)
+    StringTable,
+    DeveloperTable,
+    TableBased(usize, usize),
 }
 
 struct TableBasedEntry {
@@ -149,13 +149,44 @@ struct TableBasedEntry {
 // TEXT ENCODING HELPERS
 // -----------------------------------------------------------------------------
 
+pub fn decode_by_lang(bytes: &[u8], lang_id: u16) -> String {
+    if let Ok(utf8_str) = std::str::from_utf8(bytes) {
+        return utf8_str.to_string();
+    }
+    match lang_id {
+        5 => {
+            let (cow, _, _) = WINDOWS_1251.decode(bytes);
+            cow.into_owned()
+        }
+        0..=4 => {
+            let (cow, _, _) = WINDOWS_1252.decode(bytes);
+            cow.into_owned()
+        }
+        _ => decode_windows(bytes),
+    }
+}
+
+pub fn encode_by_lang(text: &str, lang_id: u16) -> Vec<u8> {
+    let has_cyrillic = text.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c));
+    if has_cyrillic || lang_id == 5 {
+        let (cow, _, _) = WINDOWS_1251.encode(text);
+        cow.into_owned()
+    } else {
+        let (cow, _, had_errors) = WINDOWS_1252.encode(text);
+        if had_errors {
+            let (cow_cyrillic, _, _) = WINDOWS_1251.encode(text);
+            cow_cyrillic.into_owned()
+        } else {
+            cow.into_owned()
+        }
+    }
+}
+
 pub fn decode_windows(bytes: &[u8]) -> String {
     if let Ok(utf8_str) = std::str::from_utf8(bytes) {
         return utf8_str.to_string();
     }
 
-    // Heuristic for Cyrillic: in CP1251, characters fall in 0xC0..=0xFF.
-    // Short strings (<= 3 bytes, e.g. "г.", "в", "да") need only 1 hit.
     let cyrillic_hits = bytes.iter().filter(|&&b| b >= 0xC0).count();
     if cyrillic_hits >= 2 || (!bytes.is_empty() && bytes.len() <= 3 && cyrillic_hits >= 1) {
         let (cow, _, had_errors) = WINDOWS_1251.decode(bytes);
@@ -333,13 +364,14 @@ fn export_text(data: &[u8], json_path: &Path, format: ChunkFormat) -> io::Result
             while offset + 566 <= data.len() {
                 let block = &data[offset..offset + 566];
                 let str_id = Cursor::new(&block[0..4]).read_u32::<LittleEndian>()?;
+                let lang_id = ((str_id >> 16) & 0xFF) as u16;
                 let mut text_bytes = &block[54..566];
                 if let Some(null_idx) = text_bytes.iter().position(|&b| b == 0) {
                     text_bytes = &text_bytes[..null_idx];
                 }
                 texts.insert(
                     format!("f566_{:08}_{}", offset, str_id),
-                    decode_windows(text_bytes),
+                    decode_by_lang(text_bytes, lang_id),
                 );
                 offset += 566;
             }
@@ -459,7 +491,6 @@ fn export_text(data: &[u8], json_path: &Path, format: ChunkFormat) -> io::Result
         let f = File::create(json_path)?;
         serde_json::to_writer_pretty(f, &texts)?;
 
-        // Write sidecar metadata file
         let mf = File::create(meta_path)?;
         serde_json::to_writer_pretty(mf, &chunk_meta)?;
     }
@@ -492,24 +523,21 @@ fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
     let mut is_fixed_566 = false;
     let mut num_strings = 0;
 
-    // 1. Check sidecar metadata file first (.meta.json)
     let meta_path = json_path.with_extension("meta.json");
-    if meta_path.exists() {
-        if let Ok(meta_data) = fs::read_to_string(&meta_path)
-            && let Ok(meta) = serde_json::from_str::<ChunkMeta>(&meta_data)
-        {
-            match meta.format.as_str() {
-                "fixed_566" => is_fixed_566 = true,
-                "developer_table" => is_developer_table = true,
-                "table_based" => {
-                    is_table_based = true;
-                    num_strings = meta.num_strings.unwrap_or(0);
-                }
-                _ => {}
+    if meta_path.exists()
+        && let Ok(meta_data) = fs::read_to_string(&meta_path)
+        && let Ok(meta) = serde_json::from_str::<ChunkMeta>(&meta_data)
+    {
+        match meta.format.as_str() {
+            "fixed_566" => is_fixed_566 = true,
+            "developer_table" => is_developer_table = true,
+            "table_based" => {
+                is_table_based = true;
+                num_strings = meta.num_strings.unwrap_or(0);
             }
+            _ => {}
         }
     } else if let Some(fmt_tag) = texts.remove("_format") {
-        // 2. Fallback: check in-JSON format tag for legacy exports
         if fmt_tag == "fixed_566" {
             is_fixed_566 = true;
         } else if fmt_tag == "developer_table" {
@@ -522,7 +550,6 @@ fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
             }
         }
     } else if let Some(first_key) = texts.keys().next() {
-        // 3. Fallback: heuristic detection
         if first_key.starts_with("f566_") {
             is_fixed_566 = true;
         } else {
@@ -579,7 +606,13 @@ fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
                     )
                 })?;
 
-            let mut text_bytes = encode_windows(val);
+            let str_id = parts
+                .get(2)
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0);
+            let lang_id = ((str_id >> 16) & 0xFF) as u16;
+
+            let mut text_bytes = encode_by_lang(val, lang_id);
             if text_bytes.len() > 511 {
                 text_bytes.truncate(511);
             }
@@ -994,11 +1027,9 @@ pub fn pack_all(
         File::open(header_path)?.read_to_end(&mut header)?;
         out.write_all(&header)?;
     } else if fmt_type == "sf1" {
-        // Raw bytes for original SF1 CFF signature + 16 null bytes
         out.write_all(b"\x02\xc5\x72\xdd")?;
         out.write_all(&[0u8; 16])?;
     } else {
-        // SF2 Container: Magic 0xDD72DD12, Version 3 (0x00000003), 12 reserved zero bytes
         out.write_all(b"\x12\xdd\x72\xdd\x03\x00\x00\x00")?;
         out.write_all(&[0u8; 12])?;
     }
@@ -1016,7 +1047,6 @@ pub fn pack_all(
         File::open(chunk_path)?.read_to_end(&mut uncomp_data)?;
 
         if fmt_type == "sf1" {
-            // SF1 Validation & Stride Check (Cleaned up let-chain)
             if let Some(info) = get_sf1_chunk_info(chunk.id)
                 && !uncomp_data.is_empty()
                 && uncomp_data.len() % info.stride != 0
@@ -1030,7 +1060,6 @@ pub fn pack_all(
             let comp_flag = chunk.comp_flag.unwrap_or(1);
             let occurrence = chunk.occurrence.unwrap_or(0);
 
-            // Ensure c_type == 3 for 0x0800, otherwise use default or explicit value
             let c_type = chunk.c_type.unwrap_or_else(|| {
                 get_sf1_chunk_info(chunk.id)
                     .map(|i| i.default_c_type)
@@ -1083,8 +1112,8 @@ pub fn pack_all(
 pub struct CffModPatch {
     pub patch_name: String,
     pub target_format: String,
-    pub text_diffs: BTreeMap<String, BTreeMap<String, String>>, // filename -> (key -> new_value)
-    pub chunk_diffs: BTreeMap<String, Vec<u8>>,                 // filename -> full binary data
+    pub text_diffs: BTreeMap<String, BTreeMap<String, String>>,
+    pub chunk_diffs: BTreeMap<String, Vec<u8>>,
 }
 
 pub fn create_diff(
@@ -1207,7 +1236,6 @@ pub fn apply_patch(target_dir: &Path, patch_path: &Path, logger: &UiLogger) -> i
     let patch: CffModPatch = serde_json::from_str(&patch_str)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
-    // 1. Apply Text Diffs (Non-destructive key-level merge)
     let json_dir = target_dir.join("texts_json");
     fs::create_dir_all(&json_dir)?;
 
@@ -1229,7 +1257,6 @@ pub fn apply_patch(target_dir: &Path, patch_path: &Path, logger: &UiLogger) -> i
         serde_json::to_writer_pretty(f, &target_map)?;
     }
 
-    // 2. Apply Modified Binary Chunks
     for (fname, data) in patch.chunk_diffs {
         let chunk_target = target_dir.join(&fname);
         File::create(&chunk_target)?.write_all(&data)?;
@@ -1254,12 +1281,16 @@ pub struct EditorItem {
     pub display: String,
 }
 
-pub fn load_editor_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<EditorItem> {
+pub fn load_editor_items(
+    cff_dir: &Path,
+    category: &str,
+    filter: &str,
+    lang_filter: &str,
+) -> Vec<EditorItem> {
     let mut items = Vec::new();
     let filter_lower = filter.to_lowercase();
 
     if category.contains("0x07DC") {
-        // 2D Gfx Items (69-byte records)
         let manifest_path = cff_dir.join("manifest.json");
         if let Ok(m_str) = fs::read_to_string(manifest_path)
             && let Ok(manifest) = serde_json::from_str::<Manifest>(&m_str)
@@ -1284,7 +1315,8 @@ pub fn load_editor_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Ed
                         .read_u16::<LittleEndian>()
                         .unwrap_or(0);
 
-                    let display = format!("ID: {:<5} | Mesh: {}", item_id, mesh_name);
+                    let display =
+                        format!("ID: {:<5} [Flag: {}] | Mesh: {}", item_id, flag, mesh_name);
                     if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                         items.push(EditorItem {
                             id_str: item_id.to_string(),
@@ -1297,7 +1329,6 @@ pub fn load_editor_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Ed
             }
         }
     } else if category.contains("0x07E2") {
-        // Spells BiMap (4-byte records)
         let manifest_path = cff_dir.join("manifest.json");
         if let Ok(m_str) = fs::read_to_string(manifest_path)
             && let Ok(manifest) = serde_json::from_str::<Manifest>(&m_str)
@@ -1331,7 +1362,7 @@ pub fn load_editor_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Ed
             }
         }
     } else {
-        // Localized Strings (Cleaned up let-chain)
+        // Localized Strings with Bitmask Language Math & Campaign Detection
         let json_dir = cff_dir.join("texts_json");
         if let Ok(entries) = fs::read_dir(json_dir) {
             for entry in entries.filter_map(|e| e.ok()) {
@@ -1343,12 +1374,61 @@ pub fn load_editor_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Ed
                 {
                     let fname = path.file_stem().unwrap().to_string_lossy().to_string();
                     for (k, v) in map {
-                        let display = format!("[{}] {} = {}", fname, k, v);
+                        let (l_id, b_id, camp_id, lang_tag) = if k.starts_with("f566_") {
+                            let parts: Vec<&str> = k.split('_').collect();
+                            let str_id = parts
+                                .get(2)
+                                .and_then(|s| s.parse::<u32>().ok())
+                                .unwrap_or(0);
+
+                            // BITMASK EXTRACTION: Prevents [EXT] fallback bug
+                            let lang = ((str_id >> 16) & 0xFF) as u8;
+                            let camp = (str_id >> 24) as u8;
+                            let base = (str_id & 0xFFFF) as u16;
+
+                            let tag = match lang {
+                                0 => "DE",
+                                1 => "EN",
+                                2 => "FR",
+                                3 => "ES",
+                                4 => "IT",
+                                5 => "RU",
+                                _ => "CUSTOM",
+                            };
+                            (lang, base, camp, tag)
+                        } else {
+                            (1, 0, 0, "TXT")
+                        };
+
+                        let lang_match = match lang_filter {
+                            "Slot 0: German (DE)" => l_id == 0,
+                            "Slot 1: English (EN)" => l_id == 1,
+                            "Slot 2: French (FR)" => l_id == 2,
+                            "Slot 3: Spanish (ES)" => l_id == 3,
+                            "Slot 4: Italian (IT)" => l_id == 4,
+                            "Slot 5: Custom (RU/PL/etc.)" => l_id >= 5,
+                            _ => true,
+                        };
+
+                        if !lang_match {
+                            continue;
+                        }
+
+                        let camp_str = match camp_id {
+                            1 => " [BoW]",
+                            2 => " [SotP]",
+                            _ => "",
+                        };
+
+                        let display = format!("[{}]{} #{:<5} | {}", lang_tag, camp_str, b_id, v);
                         if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                             items.push(EditorItem {
                                 id_str: format!("{}:{}", fname, k),
                                 val1: v,
-                                val2: fname.clone(),
+                                val2: format!(
+                                    "Slot: {} ({}){} | Base ID: {}",
+                                    l_id, lang_tag, camp_str, b_id
+                                ),
                                 display,
                             });
                         }
@@ -1406,7 +1486,6 @@ pub fn save_editor_item(
             }
         }
     } else {
-        // Localized Strings
         let parts: Vec<&str> = id_str.splitn(2, ':').collect();
         if parts.len() == 2 {
             let fname = format!("{}.json", parts[0]);
@@ -1452,7 +1531,7 @@ pub fn add_editor_item(cff_dir: &Path, category: &str) -> io::Result<String> {
 
             let mut record = vec![0u8; 69];
             record[0..2].copy_from_slice(&new_id.to_le_bytes());
-            record[2] = 1; // Default flag
+            record[2] = 1;
             let default_mesh = encode_windows("ui_item_new_asset");
             let len = default_mesh.len().min(63);
             record[3..3 + len].copy_from_slice(&default_mesh[..len]);
@@ -1494,7 +1573,6 @@ pub fn add_editor_item(cff_dir: &Path, category: &str) -> io::Result<String> {
             return Ok(new_id.to_string());
         }
     } else {
-        // Localized Strings
         let json_dir = cff_dir.join("texts_json");
         if let Ok(entries) = fs::read_dir(json_dir) {
             for entry in entries.filter_map(|e| e.ok()) {
@@ -1586,7 +1664,6 @@ pub fn duplicate_editor_item(
             }
         }
     } else {
-        // Localized Strings Duplicate
         let parts: Vec<&str> = id_str.splitn(2, ':').collect();
         if parts.len() == 2 {
             let fname = format!("{}.json", parts[0]);
@@ -1608,4 +1685,350 @@ pub fn duplicate_editor_item(
         }
     }
     Err(io::Error::other("Failed to duplicate record"))
+}
+
+pub fn delete_editor_item(
+    cff_dir: &Path,
+    category: &str,
+    index: usize,
+    id_str: &str,
+) -> io::Result<()> {
+    if category.contains("0x07DC") {
+        let manifest_path = cff_dir.join("manifest.json");
+        let m_str = fs::read_to_string(manifest_path)?;
+        let manifest: Manifest = serde_json::from_str(&m_str)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+        if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC) {
+            let chunk_path = cff_dir.join(&chunk.file);
+            let mut bytes = fs::read(&chunk_path)?;
+            let offset = index * 69;
+            if offset + 69 <= bytes.len() {
+                bytes.drain(offset..offset + 69);
+                File::create(chunk_path)?.write_all(&bytes)?;
+                return Ok(());
+            }
+        }
+    } else if category.contains("0x07E2") {
+        let manifest_path = cff_dir.join("manifest.json");
+        let m_str = fs::read_to_string(manifest_path)?;
+        let manifest: Manifest = serde_json::from_str(&m_str)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+        if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E2) {
+            let chunk_path = cff_dir.join(&chunk.file);
+            let mut bytes = fs::read(&chunk_path)?;
+            let offset = index * 4;
+            if offset + 4 <= bytes.len() {
+                bytes.drain(offset..offset + 4);
+                File::create(chunk_path)?.write_all(&bytes)?;
+                return Ok(());
+            }
+        }
+    } else {
+        let parts: Vec<&str> = id_str.splitn(2, ':').collect();
+        if parts.len() == 2 {
+            let fname = format!("{}.json", parts[0]);
+            let key = parts[1];
+            let json_path = cff_dir.join("texts_json").join(&fname);
+            if json_path.exists() {
+                let mut map: BTreeMap<String, String> =
+                    serde_json::from_str(&fs::read_to_string(&json_path)?)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+                map.remove(key);
+                let f = File::create(&json_path)?;
+                serde_json::to_writer_pretty(f, &map)?;
+            }
+
+            if key.starts_with("f566_") {
+                let k_parts: Vec<&str> = key.split('_').collect();
+                if let Some(offset) = k_parts.get(1).and_then(|s| s.parse::<usize>().ok()) {
+                    let chunk_dat_name = parts[0].replace("_strings", ".dat");
+                    let chunk_dat_path = cff_dir.join(&chunk_dat_name);
+                    if chunk_dat_path.exists() {
+                        let mut b = fs::read(&chunk_dat_path)?;
+                        if offset + 566 <= b.len() {
+                            b.drain(offset..offset + 566);
+                            File::create(&chunk_dat_path)?.write_all(&b)?;
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
+    }
+    Err(io::Error::other("Failed to delete record"))
+}
+
+// -----------------------------------------------------------------------------
+// UNIFIED MULTI-LANGUAGE CLONING & SLOT IMPORT / EXPORT TOOLS
+// -----------------------------------------------------------------------------
+
+pub fn parse_slot_number(lang_str: &str) -> u8 {
+    if lang_str.contains("Slot 0") {
+        0
+    } else if lang_str.contains("Slot 1") {
+        1
+    } else if lang_str.contains("Slot 2") {
+        2
+    } else if lang_str.contains("Slot 3") {
+        3
+    } else if lang_str.contains("Slot 4") {
+        4
+    } else if lang_str.contains("Slot 5") {
+        5
+    } else {
+        1
+    }
+}
+
+pub fn export_single_language(
+    cff_dir: &Path,
+    lang_filter: &str,
+    out_json: &Path,
+    logger: &UiLogger,
+) -> io::Result<usize> {
+    let slot = parse_slot_number(lang_filter);
+    logger.log(&format!(
+        "[*] Exporting clean language JSON for Slot {}...",
+        slot
+    ));
+
+    let items = load_editor_items(cff_dir, "Localized Strings", "", lang_filter);
+    let mut clean_map: BTreeMap<String, String> = BTreeMap::new();
+
+    for it in &items {
+        if let Some(pos) = it.val2.find("Base ID: ") {
+            let id_part = &it.val2[pos + 9..];
+            clean_map.insert(id_part.to_string(), it.val1.clone());
+        } else {
+            clean_map.insert(it.id_str.clone(), it.val1.clone());
+        }
+    }
+
+    let count = clean_map.len();
+    let f = File::create(out_json)?;
+    serde_json::to_writer_pretty(f, &clean_map)?;
+
+    logger.log(&format!(
+        "[+] Successfully exported {} clean phrases to {:?}",
+        count, out_json
+    ));
+    Ok(count)
+}
+
+pub fn import_language_to_slot(
+    cff_dir: &Path,
+    lang_filter: &str,
+    in_json: &Path,
+    logger: &UiLogger,
+) -> io::Result<usize> {
+    let slot = parse_slot_number(lang_filter);
+    replace_slot_from_json(cff_dir, slot as u16, in_json, logger)
+}
+
+pub fn clone_language_slot(
+    cff_dir: &Path,
+    src_slot: u16,
+    dst_slot: u16,
+    logger: &UiLogger,
+) -> io::Result<usize> {
+    logger.log(&format!(
+        "[*] Cloning Language Slot {} -> Slot {}...",
+        src_slot, dst_slot
+    ));
+
+    let manifest_path = cff_dir.join("manifest.json");
+    let m_str = fs::read_to_string(manifest_path)?;
+    let manifest: Manifest = serde_json::from_str(&m_str)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+    let mut cloned_count = 0;
+
+    // 1. Clone inside binary chunk_*.dat files
+    for chunk in &manifest.chunks {
+        let chunk_path = cff_dir.join(&chunk.file);
+        if !chunk_path.exists() {
+            continue;
+        }
+        let data = fs::read(&chunk_path)?;
+        if data.len() < 566 || !data.len().is_multiple_of(566) {
+            continue;
+        }
+
+        let num_blocks = data.len() / 566;
+        let mut new_blocks = Vec::new();
+
+        for i in 0..num_blocks {
+            let offset = i * 566;
+            let block = &data[offset..offset + 566];
+            let str_id = Cursor::new(&block[0..4]).read_u32::<LittleEndian>()?;
+            let lang_id = ((str_id >> 16) & 0xFF) as u16;
+            let camp_id = str_id >> 24;
+            let base_id = (str_id & 0xFFFF) as u16;
+
+            if lang_id == src_slot {
+                let mut new_block = block.to_vec();
+                let new_str_id = (camp_id << 24) | ((dst_slot as u32) << 16) | (base_id as u32);
+                new_block[0..4].copy_from_slice(&new_str_id.to_le_bytes());
+                new_blocks.extend_from_slice(&new_block);
+                cloned_count += 1;
+            }
+        }
+
+        if !new_blocks.is_empty() {
+            let mut file = fs::OpenOptions::new().append(true).open(&chunk_path)?;
+            file.write_all(&new_blocks)?;
+            logger.log(&format!(
+                "[+] Appended {} blocks to {}",
+                new_blocks.len() / 566,
+                chunk.file
+            ));
+        }
+    }
+
+    // 2. Synchronize texts_json files so GUI refreshes immediately
+    let json_dir = cff_dir.join("texts_json");
+    if json_dir.exists()
+        && let Ok(entries) = fs::read_dir(&json_dir)
+    {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let p = entry.path();
+            if p.extension().and_then(|s| s.to_str()) == Some("json")
+                && !p.to_string_lossy().ends_with(".meta.json")
+                && let Ok(content) = fs::read_to_string(&p)
+                && let Ok(mut map) = serde_json::from_str::<BTreeMap<String, String>>(&content)
+            {
+                let mut to_add = Vec::new();
+                for (k, v) in &map {
+                    if k.starts_with("f566_") {
+                        let parts: Vec<&str> = k.split('_').collect();
+                        if let Some(str_id) = parts.get(2).and_then(|s| s.parse::<u32>().ok()) {
+                            let l_id = ((str_id >> 16) & 0xFF) as u16;
+                            let b_id = (str_id & 0xFFFF) as u16;
+                            let camp_id = str_id >> 24;
+                            if l_id == src_slot {
+                                let new_str_id =
+                                    (camp_id << 24) | ((dst_slot as u32) << 16) | (b_id as u32);
+                                let new_k = format!("f566_{}_{}", parts[1], new_str_id);
+                                to_add.push((new_k, v.clone()));
+                            }
+                        }
+                    }
+                }
+                for (k, v) in to_add {
+                    map.insert(k, v);
+                }
+                let _ = serde_json::to_writer_pretty(File::create(&p)?, &map);
+            }
+        }
+    }
+
+    Ok(cloned_count)
+}
+
+pub fn replace_slot_from_json(
+    cff_dir: &Path,
+    target_slot: u16,
+    json_path: &Path,
+    logger: &UiLogger,
+) -> io::Result<usize> {
+    logger.log(&format!(
+        "[*] Overwriting Language Slot {} from {:?}...",
+        target_slot, json_path
+    ));
+
+    let translation_content = fs::read_to_string(json_path)?;
+    let translations: BTreeMap<String, String> = serde_json::from_str(&translation_content)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+    let manifest_path = cff_dir.join("manifest.json");
+    let m_str = fs::read_to_string(manifest_path)?;
+    let manifest: Manifest = serde_json::from_str(&m_str)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+    let mut updated_count = 0;
+
+    // 1. Overwrite in binary chunk_*.dat files
+    for chunk in &manifest.chunks {
+        let chunk_path = cff_dir.join(&chunk.file);
+        if !chunk_path.exists() {
+            continue;
+        }
+        let mut data = fs::read(&chunk_path)?;
+        if data.len() < 566 || !data.len().is_multiple_of(566) {
+            continue;
+        }
+
+        let num_blocks = data.len() / 566;
+        for i in 0..num_blocks {
+            let offset = i * 566;
+            let str_id = Cursor::new(&data[offset..offset + 4]).read_u32::<LittleEndian>()?;
+            let lang_id = ((str_id >> 16) & 0xFF) as u16;
+            let base_id = (str_id & 0xFFFF) as u16;
+
+            if lang_id == target_slot {
+                let lookup_keys = [
+                    base_id.to_string(),
+                    format!("L{}_{}", lang_id, base_id),
+                    format!("f566_{:08}_{}", offset, str_id),
+                ];
+
+                for key in &lookup_keys {
+                    if let Some(new_text) = translations.get(key) {
+                        let mut text_bytes = encode_by_lang(new_text, target_slot);
+                        if text_bytes.len() > 511 {
+                            text_bytes.truncate(511);
+                        }
+                        let mut padded = vec![0u8; 512];
+                        padded[..text_bytes.len()].copy_from_slice(&text_bytes);
+                        data[offset + 54..offset + 566].copy_from_slice(&padded);
+                        updated_count += 1;
+                        break;
+                    }
+                }
+            }
+        }
+
+        File::create(&chunk_path)?.write_all(&data)?;
+    }
+
+    // 2. Overwrite in texts_json so GUI immediately refreshes
+    let json_dir = cff_dir.join("texts_json");
+    if json_dir.exists()
+        && let Ok(entries) = fs::read_dir(&json_dir)
+    {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let p = entry.path();
+            if p.extension().and_then(|s| s.to_str()) == Some("json")
+                && !p.to_string_lossy().ends_with(".meta.json")
+                && let Ok(content) = fs::read_to_string(&p)
+                && let Ok(mut map) = serde_json::from_str::<BTreeMap<String, String>>(&content)
+            {
+                for (k, v) in map.iter_mut() {
+                    if k.starts_with("f566_") {
+                        let parts: Vec<&str> = k.split('_').collect();
+                        if let Some(str_id) = parts.get(2).and_then(|s| s.parse::<u32>().ok()) {
+                            let l_id = ((str_id >> 16) & 0xFF) as u16;
+                            let b_id = (str_id & 0xFFFF) as u16;
+                            if l_id == target_slot
+                                && let Some(new_val) = translations
+                                    .get(&b_id.to_string())
+                                    .or_else(|| translations.get(&format!("L{}_{}", l_id, b_id)))
+                            {
+                                *v = new_val.clone();
+                            }
+                        }
+                    }
+                }
+                let _ = serde_json::to_writer_pretty(File::create(&p)?, &map);
+            }
+        }
+    }
+
+    logger.log(&format!(
+        "[+] Successfully replaced {} phrases in Slot {}!",
+        updated_count, target_slot
+    ));
+    Ok(updated_count)
 }
