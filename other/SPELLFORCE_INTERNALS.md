@@ -1,5 +1,3 @@
----
-
 ## 1. PAK Archive & Virtual File System (VFS)
 
 ### 1.1. SpellForce 1 — `MASSIVE PAKFILE V 4.0`
@@ -254,5 +252,3 @@ $$\text{Spell ID (Combat Spell Entity)} \xleftrightarrow[\text{0x07E2}]{\text{Bi
 1. **The 2018 Steam Crisis:** Valve notified THQ Nordic that digital CD-keys for *SpellForce 1* were exhausted, threatening immediate store delisting unless the legacy SecuROM/JoWooD DRM key check was excised.
 2. **Missing v1.54 Source Code:** THQ Nordic's acquisition of bankrupt JoWooD's servers yielded only the **v1.50** source tree (build 60653, summer 2005). The final v1.54 sources produced by EA Phenomic for *Platinum Edition* remained locked in EA's LTO tape archives.
 3. **The 1.61 Regression:** Patch 1.61 was branched off v1.50, inadvertently resurrecting 15-year-old bugs already resolved in 1.54 (Farlorn's Hope spawn bug, missing health bar rendering on modern GPUs, savegame format breakage).
-
----
