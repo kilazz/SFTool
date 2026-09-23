@@ -5,7 +5,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, Cursor, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug)]
 pub struct EditorItem {
@@ -21,6 +21,210 @@ pub struct SpellVisualDetails {
     pub scroll_name: String,
     pub scroll_mesh: String,
 }
+
+// -----------------------------------------------------------------------------
+// PHENOMIC VFS SEQUENTIAL PAK MOUNTING ENGINE
+// -----------------------------------------------------------------------------
+
+/// Extracts numerical order from archive filenames (e.g., "sf0.pak" -> 0, "sf35.pak" -> 35).
+fn get_pak_order_key(path: &Path) -> (u32, String) {
+    let stem = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_lowercase();
+    let num_str: String = stem.chars().filter(|c| c.is_ascii_digit()).collect();
+    let num = num_str.parse::<u32>().unwrap_or(0);
+    (num, stem)
+}
+
+/// Discovers all .pak archives in a directory and sorts them in ascending numerical order.
+fn collect_sorted_paks(dir: &Path) -> Vec<PathBuf> {
+    let mut paks = Vec::new();
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let p = entry.path();
+            if p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("pak") {
+                paks.push(p);
+            }
+        }
+    }
+    paks.sort_by_key(|a| get_pak_order_key(a));
+    paks
+}
+
+// -----------------------------------------------------------------------------
+// HYBRID TEXTURE SEARCH & SPELL CROSS-REFERENCE ENGINE
+// -----------------------------------------------------------------------------
+
+/// Searches for and loads textures using the exact Phenomic VFS priority:
+/// 1. Loose files on disk (highest priority / mod testing overrides).
+/// 2. .PAK archives scanned in REVERSE numerical order (sf35.pak -> sf0.pak),
+///    ensuring patched/addon assets override base game assets.
+pub fn find_and_load_texture(
+    cff_dir: &Path,
+    asset_source: &Path,
+    mesh_name: &str,
+) -> Option<(image::RgbaImage, String)> {
+    let clean_name = mesh_name
+        .trim()
+        .trim_end_matches(".msh")
+        .trim_end_matches(".msb");
+
+    if clean_name.is_empty() {
+        return None;
+    }
+
+    let extensions = ["dds", "tga", "png"];
+
+    // 1. Check explicit asset source (File or Folder specified in UI)
+    if asset_source.is_file() {
+        if let Some((bytes, fname)) =
+            crate::pak::read_file_from_pak(asset_source, clean_name, &extensions)
+        {
+            return decode_raw_texture_bytes(&bytes, &fname);
+        }
+    } else if asset_source.is_dir() {
+        // A. Loose files on disk take top priority
+        if let Some(res) = check_loose_texture_dirs(asset_source, clean_name, &extensions) {
+            return Some(res);
+        }
+        // B. Search archives in reverse numerical order (newest first)
+        let sorted_paks = collect_sorted_paks(asset_source);
+        for pak_path in sorted_paks.iter().rev() {
+            if let Some((bytes, fname)) =
+                crate::pak::read_file_from_pak(pak_path, clean_name, &extensions)
+            {
+                return decode_raw_texture_bytes(&bytes, &fname);
+            }
+        }
+    }
+
+    // 2. Relative search around cff_dir (game root / data directory)
+    let mut search_dirs = Vec::new();
+    search_dirs.push(cff_dir.to_path_buf());
+    if let Some(p) = cff_dir.parent() {
+        search_dirs.push(p.to_path_buf());
+        if let Some(gp) = p.parent() {
+            search_dirs.push(gp.to_path_buf());
+        }
+    }
+
+    for dir in &search_dirs {
+        // A. Loose files take top priority
+        if let Some(res) = check_loose_texture_dirs(dir, clean_name, &extensions) {
+            return Some(res);
+        }
+        // B. Search archives in reverse numerical order (sf35.pak -> sf0.pak)
+        let sorted_paks = collect_sorted_paks(dir);
+        for pak_path in sorted_paks.iter().rev() {
+            if let Some((bytes, fname)) =
+                crate::pak::read_file_from_pak(pak_path, clean_name, &extensions)
+            {
+                return decode_raw_texture_bytes(&bytes, &fname);
+            }
+        }
+    }
+
+    None
+}
+
+fn check_loose_texture_dirs(
+    base_dir: &Path,
+    clean_name: &str,
+    extensions: &[&str],
+) -> Option<(image::RgbaImage, String)> {
+    let check_dirs = vec![
+        base_dir.to_path_buf(),
+        base_dir.join("textures"),
+        base_dir.join("textures").join("gui"),
+        base_dir.join("textures").join("ui"),
+        base_dir.join("ui"),
+        base_dir.join("gui"),
+    ];
+
+    for d in check_dirs {
+        if !d.is_dir() {
+            continue;
+        }
+        for ext in extensions {
+            let f = d.join(format!("{}.{}", clean_name, ext));
+            if f.is_file()
+                && let Ok(bytes) = fs::read(&f)
+            {
+                let fname = f.file_name().unwrap().to_string_lossy().to_string();
+                return decode_raw_texture_bytes(&bytes, &fname);
+            }
+        }
+    }
+    None
+}
+
+fn decode_raw_texture_bytes(bytes: &[u8], filename: &str) -> Option<(image::RgbaImage, String)> {
+    if filename.to_lowercase().ends_with(".dds") {
+        if let Ok(rgba) = crate::dds::decode_dds_to_rgba(bytes, Some(128)) {
+            return Some((rgba, filename.to_string()));
+        }
+    } else if let Ok(dyn_img) = image::load_from_memory(bytes) {
+        return Some((dyn_img.into_rgba8(), filename.to_string()));
+    }
+    None
+}
+
+pub fn resolve_spell_cross_reference(
+    cff_dir: &Path,
+    spell_id: u16,
+    scroll_id: u16,
+) -> SpellVisualDetails {
+    let mut spell_mesh = String::new();
+    let mut scroll_mesh = String::new();
+
+    let manifest_path = cff_dir.join("manifest.json");
+    if let Ok(m_str) = fs::read_to_string(manifest_path)
+        && let Ok(manifest) = serde_json::from_str::<Manifest>(&m_str)
+        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC)
+    {
+        let chunk_path = cff_dir.join(&chunk.file);
+        if let Ok(bytes) = fs::read(chunk_path) {
+            let count = bytes.len() / 69;
+            for i in 0..count {
+                let offset = i * 69;
+                let id = Cursor::new(&bytes[offset..offset + 2])
+                    .read_u16::<LittleEndian>()
+                    .unwrap_or(0);
+                let flag = bytes[offset + 2];
+                let mesh_bytes = &bytes[offset + 3..offset + 67];
+                let end = mesh_bytes
+                    .iter()
+                    .position(|&b| b == 0)
+                    .unwrap_or(mesh_bytes.len());
+                let m_name = decode_windows(&mesh_bytes[..end]);
+
+                if id == spell_id && (flag == 2 || spell_mesh.is_empty()) {
+                    spell_mesh = m_name.clone();
+                }
+                if id == scroll_id && (flag == 1 || scroll_mesh.is_empty()) {
+                    scroll_mesh = m_name;
+                }
+            }
+        }
+    }
+
+    if scroll_mesh.is_empty() {
+        scroll_mesh = "ui_item_spellscroll".to_string();
+    }
+
+    SpellVisualDetails {
+        spell_name: format!("Spell #{}", spell_id),
+        spell_mesh,
+        scroll_name: format!("Scroll #{}", scroll_id),
+        scroll_mesh,
+    }
+}
+
+// -----------------------------------------------------------------------------
+// BALANCE EDITOR CRUD OPERATIONS
+// -----------------------------------------------------------------------------
 
 pub fn load_editor_items(
     cff_dir: &Path,
@@ -661,177 +865,4 @@ pub fn delete_editor_item(
         }
     }
     Err(io::Error::other("Failed to delete record"))
-}
-
-// -----------------------------------------------------------------------------
-// HYBRID TEXTURE SEARCH & SPELL CROSS-REFERENCE ENGINE
-// -----------------------------------------------------------------------------
-
-pub fn find_and_load_texture(
-    cff_dir: &Path,
-    asset_source: &Path,
-    mesh_name: &str,
-) -> Option<(image::RgbaImage, String)> {
-    let clean_name = mesh_name
-        .trim()
-        .trim_end_matches(".msh")
-        .trim_end_matches(".msb");
-
-    if clean_name.is_empty() {
-        return None;
-    }
-
-    let extensions = ["dds", "tga", "png"];
-
-    // 1. Direct explicit asset source (File or Folder)
-    if asset_source.is_file() {
-        if let Some((bytes, fname)) =
-            crate::pak::read_file_from_pak(asset_source, clean_name, &extensions)
-        {
-            return decode_raw_texture_bytes(&bytes, &fname);
-        }
-    } else if asset_source.is_dir() {
-        // A. Check loose files in asset_source
-        if let Some(res) = check_loose_texture_dirs(asset_source, clean_name, &extensions) {
-            return Some(res);
-        }
-        // B. Check all .pak archives located in asset_source
-        if let Ok(entries) = fs::read_dir(asset_source) {
-            for entry in entries.filter_map(|e| e.ok()) {
-                let p = entry.path();
-                if p.is_file()
-                    && p.extension().and_then(|s| s.to_str()) == Some("pak")
-                    && let Some((bytes, fname)) =
-                        crate::pak::read_file_from_pak(&p, clean_name, &extensions)
-                {
-                    return decode_raw_texture_bytes(&bytes, &fname);
-                }
-            }
-        }
-    }
-
-    // 2. Relative search around cff_dir (loose files and PAKs in parent folders)
-    let mut search_dirs = Vec::new();
-    search_dirs.push(cff_dir.to_path_buf());
-    if let Some(p) = cff_dir.parent() {
-        search_dirs.push(p.to_path_buf());
-        if let Some(gp) = p.parent() {
-            search_dirs.push(gp.to_path_buf());
-        }
-    }
-
-    for dir in &search_dirs {
-        // Check loose files
-        if let Some(res) = check_loose_texture_dirs(dir, clean_name, &extensions) {
-            return Some(res);
-        }
-        // Check any .pak archives in data folder (e.g. sf0.pak, sf1.pak)
-        if let Ok(entries) = fs::read_dir(dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
-                let p = entry.path();
-                if p.is_file()
-                    && p.extension().and_then(|s| s.to_str()) == Some("pak")
-                    && let Some((bytes, fname)) =
-                        crate::pak::read_file_from_pak(&p, clean_name, &extensions)
-                {
-                    return decode_raw_texture_bytes(&bytes, &fname);
-                }
-            }
-        }
-    }
-
-    None
-}
-
-fn check_loose_texture_dirs(
-    base_dir: &Path,
-    clean_name: &str,
-    extensions: &[&str],
-) -> Option<(image::RgbaImage, String)> {
-    let check_dirs = vec![
-        base_dir.to_path_buf(),
-        base_dir.join("textures"),
-        base_dir.join("textures").join("gui"),
-        base_dir.join("textures").join("ui"),
-        base_dir.join("ui"),
-        base_dir.join("gui"),
-    ];
-
-    for d in check_dirs {
-        if !d.is_dir() {
-            continue;
-        }
-        for ext in extensions {
-            let f = d.join(format!("{}.{}", clean_name, ext));
-            if f.is_file()
-                && let Ok(bytes) = fs::read(&f)
-            {
-                let fname = f.file_name().unwrap().to_string_lossy().to_string();
-                return decode_raw_texture_bytes(&bytes, &fname);
-            }
-        }
-    }
-    None
-}
-
-fn decode_raw_texture_bytes(bytes: &[u8], filename: &str) -> Option<(image::RgbaImage, String)> {
-    if filename.to_lowercase().ends_with(".dds") {
-        if let Ok(rgba) = crate::dds::decode_dds_to_rgba(bytes, Some(128)) {
-            return Some((rgba, filename.to_string()));
-        }
-    } else if let Ok(dyn_img) = image::load_from_memory(bytes) {
-        return Some((dyn_img.into_rgba8(), filename.to_string()));
-    }
-    None
-}
-
-pub fn resolve_spell_cross_reference(
-    cff_dir: &Path,
-    spell_id: u16,
-    scroll_id: u16,
-) -> SpellVisualDetails {
-    let mut spell_mesh = String::new();
-    let mut scroll_mesh = String::new();
-
-    let manifest_path = cff_dir.join("manifest.json");
-    if let Ok(m_str) = fs::read_to_string(manifest_path)
-        && let Ok(manifest) = serde_json::from_str::<Manifest>(&m_str)
-        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC)
-    {
-        let chunk_path = cff_dir.join(&chunk.file);
-        if let Ok(bytes) = fs::read(chunk_path) {
-            let count = bytes.len() / 69;
-            for i in 0..count {
-                let offset = i * 69;
-                let id = Cursor::new(&bytes[offset..offset + 2])
-                    .read_u16::<LittleEndian>()
-                    .unwrap_or(0);
-                let flag = bytes[offset + 2];
-                let mesh_bytes = &bytes[offset + 3..offset + 67];
-                let end = mesh_bytes
-                    .iter()
-                    .position(|&b| b == 0)
-                    .unwrap_or(mesh_bytes.len());
-                let m_name = decode_windows(&mesh_bytes[..end]);
-
-                if id == spell_id && (flag == 2 || spell_mesh.is_empty()) {
-                    spell_mesh = m_name.clone();
-                }
-                if id == scroll_id && (flag == 1 || scroll_mesh.is_empty()) {
-                    scroll_mesh = m_name;
-                }
-            }
-        }
-    }
-
-    if scroll_mesh.is_empty() {
-        scroll_mesh = "ui_item_spellscroll".to_string();
-    }
-
-    SpellVisualDetails {
-        spell_name: format!("Spell #{}", spell_id),
-        spell_mesh,
-        scroll_name: format!("Scroll #{}", scroll_id),
-        scroll_mesh,
-    }
 }

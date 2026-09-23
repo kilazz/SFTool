@@ -6,7 +6,7 @@ Modding, localization, and scripting suite for **SpellForce 1** and **SpellForce
 
 ### 📦 PAK Archive & VFS
 * **Formats:** SpellForce 1 (`MASSIVE PAKFILE V 4.0`) and SpellForce 2 (`PAK\x01`).
-* **Engine Accuracy (SF1):** In-engine 16-bit K&R path hashing (`FUN_004a4180`), binary search sorting comparator, and 4-byte DWORD alignment fix preventing DirectX `D3DERR_INVALIDCALL` crashes.
+* **Engine Accuracy (SF1):** In-engine 16-bit K&R path hashing, binary search sorting comparator, and 4-byte DWORD alignment.
 * **Operations:** Single/batch unpack, single/batch pack, interactive directory tree view.
 
 ### 🗄️ CFF Database & Diff Engine
