@@ -328,7 +328,9 @@ pub fn pack_all(
         File::open(chunk_path)?.read_to_end(&mut uncomp_data)?;
 
         if fmt_type == "sf1" {
+            // Guard against division by zero for dynamic chunks (stride == 0)
             if let Some(info) = get_sf1_chunk_info(chunk.id)
+                && info.stride > 0
                 && !uncomp_data.is_empty()
                 && uncomp_data.len() % info.stride != 0
             {

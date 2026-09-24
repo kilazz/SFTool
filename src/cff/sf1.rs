@@ -29,7 +29,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x07D2,
         name: "SpellsMaster",
-        stride: 72,
+        stride: 76, // Verified: 76 bytes exact (4B cast & 4B recast ms)
         default_c_type: 1,
         description: "Combat spells parameters (Cat 2002)",
     },
@@ -162,7 +162,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x07EE,
         name: "BuildingCollision",
-        stride: 8,
+        stride: 0, // Dynamic length variable chunk
         default_c_type: 1,
         description: "Collision polygons (Cat 2030)",
     },
@@ -246,7 +246,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x0802,
         name: "ObjectsMaster",
-        stride: 60, // Verified: 60 bytes with internal category path
+        stride: 54, // Verified: 54 bytes exact (41 bytes category name buffer)
         default_c_type: 1,
         description: "Interactive map props (Cat 2050)",
     },
@@ -274,7 +274,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x0806,
         name: "SpellLines",
-        stride: 18,
+        stride: 75, // Verified: 75 bytes exact (64 bytes icon name buffer)
         default_c_type: 1,
         description: "Magic schools lines (Cat 2054)",
     },
@@ -412,37 +412,42 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         return items;
     };
 
-    // 1. Spells Master (0x07D2)
+    // 1. Spells Master (0x07D2) - Verified 76-byte stride
     if (category.contains("0x07D2") || category.contains("2002"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D2)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
         for chunk_slice in bytes.as_chunks::<{ SpellEntry::STRIDE }>().0 {
             if let Ok(e) = SpellEntry::decode(chunk_slice) {
+                let req_str = e.format_skill_reqs();
                 let display = format!(
-                    "Spell #{:<5} [Line: {:<3}] | Mana: {:<3} | Power: {:<3} | Target: {} ({}) | Range: {}-{}",
+                    "Spell #{:<5} [Line: {:<3}] | Req: {:<16} | Mana: {:<3} | Cast: {:<4}ms | CD: {:<5}ms | Range: {}-{} | Target: {} ({})",
                     e.spell_id,
                     e.spell_line_id,
+                    req_str,
                     e.mana_cost,
-                    e.effect_power,
+                    e.cast_time_ms,
+                    e.recast_time_ms,
+                    e.min_range,
+                    e.max_range,
                     e.format_target_faction(),
                     e.format_target_mode(),
-                    e.min_range,
-                    e.max_range
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: e.spell_id.to_string(),
-                        val1: format!("Mana: {}, Power: {}", e.mana_cost, e.effect_power),
+                        val1: format!(
+                            "Mana: {}, Cast: {}ms, CD: {}ms",
+                            e.mana_cost, e.cast_time_ms, e.recast_time_ms
+                        ),
                         val2: format!(
-                            "Line: {} | Target: {} ({}) | Range: {}-{} | Cast: {}ms | Recast: {}ms",
+                            "Line: {} | Req: {} | Range: {}-{} | Radius: {} | Power: {}%",
                             e.spell_line_id,
-                            e.format_target_faction(),
-                            e.format_target_mode(),
+                            req_str,
                             e.min_range,
                             e.max_range,
-                            e.cast_time_ms,
-                            e.recast_time_ms
+                            e.effect_range,
+                            e.effect_power
                         ),
                         display,
                     });
@@ -450,7 +455,34 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 2. Items Master (0x07D3)
+    // 2. Spell Lines (0x0806 / Cat 2054) - Verified 75-byte stride
+    else if (category.contains("0x0806") || category.contains("2054"))
+        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0806)
+        && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
+    {
+        for chunk_slice in bytes.as_chunks::<{ SpellLineEntry::STRIDE }>().0 {
+            if let Ok(l) = SpellLineEntry::decode(chunk_slice) {
+                let school = l.format_school();
+                let aura_tag = if l.is_aura() { " [Aura]" } else { "" };
+                let display = format!(
+                    "SpellLine #{:<3} [{}] | School: {}{} | MaxLvl: {} | NameID: {}",
+                    l.line_id, l.icon_name, school, aura_tag, l.max_level, l.name_id
+                );
+                if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
+                    items.push(EditorItem {
+                        id_str: l.line_id.to_string(),
+                        val1: l.icon_name,
+                        val2: format!(
+                            "School: {} | MaxLvl: {} | Flags: 0x{:02X} | NameID: {} | DescID: {}",
+                            school, l.max_level, l.line_flags, l.name_id, l.description_id
+                        ),
+                        display,
+                    });
+                }
+            }
+        }
+    }
+    // 3. Items Master (0x07D3)
     else if (category.contains("0x07D3") || category.contains("2003"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D3)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -475,7 +507,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 3. Item Stats Modifiers (0x07D4)
+    // 4. Item Stats Modifiers (0x07D4)
     else if (category.contains("0x07D4") || category.contains("2004"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D4)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -511,7 +543,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 4. Unit Stats (0x07D5)
+    // 5. Unit Stats (0x07D5)
     else if (category.contains("0x07D5") || category.contains("2005"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D5)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -552,7 +584,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 5. 2D Gfx Items (0x07DC)
+    // 6. 2D Gfx Items (0x07DC)
     else if (category.contains("0x07DC") || category.contains("2012"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -574,7 +606,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 6. Weapon Stats (0x07DF)
+    // 7. Weapon Stats (0x07DF)
     else if (category.contains("0x07DF") || category.contains("2015"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DF)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -600,7 +632,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 7. Spells BiMap (0x07E2)
+    // 8. Spells BiMap (0x07E2)
     else if (category.contains("0x07E2") || category.contains("2018"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E2)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -622,7 +654,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 8. Races (0x07E6)
+    // 9. Races (0x07E6)
     else if (category.contains("0x07E6") || category.contains("2022"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E6)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -648,7 +680,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 9. Units Master (0x07E8) - 64-byte verified stride with internal developer name
+    // 10. Units Master (0x07E8) - 64-byte verified stride
     else if (category.contains("0x07E8") || category.contains("2024"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E8)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -674,7 +706,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 10. Buildings Master (0x07ED) - 23-byte verified stride
+    // 11. Buildings Master (0x07ED) - 23-byte verified stride
     else if (category.contains("0x07ED") || category.contains("2029"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07ED)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -703,7 +735,48 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 11. Unit Loot Tables (0x07F8) - 11-byte verified cascading stride
+    // 12. Building Collision Polygons (0x07EE / Cat 2030) - Dynamic Length Parsing
+    else if (category.contains("0x07EE") || category.contains("2030"))
+        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07EE)
+        && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
+    {
+        let mut cur = Cursor::new(&bytes);
+        while (cur.position() as usize) < bytes.len() {
+            if cur.position() as usize + 5 > bytes.len() {
+                break;
+            }
+
+            let bld_id = cur.read_u16::<LittleEndian>().unwrap_or(0);
+            let poly_idx = cur.read_u8().unwrap_or(0);
+            let flag = cur.read_u8().unwrap_or(0);
+            let vertex_count = cur.read_u8().unwrap_or(0);
+
+            let mut coords = Vec::new();
+            for _ in 0..vertex_count {
+                if cur.position() as usize + 4 > bytes.len() {
+                    break;
+                }
+                let x = cur.read_i16::<LittleEndian>().unwrap_or(0);
+                let y = cur.read_i16::<LittleEndian>().unwrap_or(0);
+                coords.push(format!("({},{})", x, y));
+            }
+
+            let display = format!(
+                "BuildingCollision #{:<4} [Poly #{}] | Vertices: {:<2} | Flag: {}",
+                bld_id, poly_idx, vertex_count, flag
+            );
+
+            if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
+                items.push(EditorItem {
+                    id_str: format!("{}:{}", bld_id, poly_idx),
+                    val1: vertex_count.to_string(),
+                    val2: coords.join(" | "),
+                    display,
+                });
+            }
+        }
+    }
+    // 13. Unit Loot Tables (0x07F8) - 11-byte verified cascading stride
     else if (category.contains("0x07F8") || category.contains("2040"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07F8)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -729,7 +802,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 12. Level Progression (0x0800)
+    // 14. Level Progression (0x0800)
     else if (category.contains("0x0800") || category.contains("2048"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0800)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -754,7 +827,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 13. Objects Master (0x0802) - 60-byte verified stride
+    // 15. Objects Master (0x0802) - 54-byte verified stride
     else if (category.contains("0x0802") || category.contains("2050"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0802)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -781,7 +854,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 14. Unit Equipment (0x07E9)
+    // 16. Unit Equipment (0x07E9)
     else if (category.contains("0x07E9") || category.contains("2025"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E9)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -804,7 +877,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 15. Merchant Inventory (0x07FA)
+    // 17. Merchant Inventory (0x07FA)
     else if (category.contains("0x07FA") || category.contains("2042"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07FA)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -826,7 +899,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 16. Quests (0x080D) - 17-byte verified stride
+    // 18. Quests (0x080D) - 17-byte verified stride
     else if (category.contains("0x080D") || category.contains("2061"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080D)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -856,7 +929,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 17. Weapon Types (0x080F)
+    // 19. Weapon Types (0x080F)
     else if (category.contains("0x080F") || category.contains("2063"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080F)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -878,7 +951,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 18. Weapon Materials (0x0810)
+    // 20. Weapon Materials (0x0810)
     else if (category.contains("0x0810") || category.contains("2064"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0810)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -900,7 +973,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 19. Item Sets (0x0818)
+    // 21. Item Sets (0x0818)
     else if (category.contains("0x0818") || category.contains("2072"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0818)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -922,7 +995,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 20. Terrain Cultivation (0x07F0)
+    // 22. Terrain Cultivation (0x07F0)
     else if (category.contains("0x07F0") || category.contains("2032"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07F0)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -944,7 +1017,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 21. Portals (0x0805) - 13-byte verified stride
+    // 23. Portals (0x0805) - 13-byte verified stride
     else if (category.contains("0x0805") || category.contains("2053"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0805)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -970,7 +1043,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 22. Descriptions (0x080A)
+    // 24. Descriptions (0x080A)
     else if (category.contains("0x080A") || category.contains("2058"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080A)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -992,7 +1065,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 23. Object Collision Polygons (0x0809) - Dynamic Length Parsing
+    // 25. Object Collision Polygons (0x0809) - Dynamic Length Parsing
     else if (category.contains("0x0809") || category.contains("2057"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0809)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -1051,7 +1124,11 @@ pub fn save_sf1_item(
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
 
     // Dynamic-length chunk editing is skipped directly from flat UI rows
-    if category.contains("0x0809") || category.contains("2057") {
+    if category.contains("0x0809")
+        || category.contains("2057")
+        || category.contains("0x07EE")
+        || category.contains("2030")
+    {
         return Ok(());
     }
 
@@ -1078,14 +1155,32 @@ pub fn save_sf1_item(
             if let Some(m) = parse_numeric_key_u16(val1, "Mana") {
                 e.mana_cost = m;
             }
-            if let Some(p) = parse_numeric_key_u16(val1, "Power") {
-                e.effect_power = p;
-            }
-            if let Some(c) = parse_numeric_key_u16(val2, "Cast") {
+            if let Some(c) =
+                parse_numeric_key_u32(val1, "Cast").or_else(|| parse_numeric_key_u32(val2, "Cast"))
+            {
                 e.cast_time_ms = c;
             }
-            if let Some(r) = parse_numeric_key_u16(val2, "Recast") {
+            if let Some(r) = parse_numeric_key_u32(val1, "CD")
+                .or_else(|| parse_numeric_key_u32(val1, "Recast"))
+                .or_else(|| parse_numeric_key_u32(val2, "CD"))
+                .or_else(|| parse_numeric_key_u32(val2, "Recast"))
+            {
                 e.recast_time_ms = r;
+            }
+            if let Some(p) = parse_numeric_key_u16(val2, "Power") {
+                e.effect_power = p;
+            }
+            if let Some(rad) = parse_numeric_key_u16(val2, "Radius") {
+                e.effect_range = rad;
+            }
+        });
+    } else if category.contains("0x0806") || category.contains("2054") {
+        update_record!(0x0806, SpellLineEntry, |e: &mut SpellLineEntry| {
+            if !val1.is_empty() {
+                e.icon_name = val1.trim().to_string();
+            }
+            if let Some(desc) = parse_numeric_key_u16(val2, "DescID") {
+                e.description_id = desc;
             }
         });
     } else if category.contains("0x07D3") || category.contains("2003") {

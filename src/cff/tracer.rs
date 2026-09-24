@@ -173,7 +173,7 @@ impl Default for TracerEngine {
         foreign_keys.insert(
             2058,
             vec![
-                (2054, "DescriptionID", 16, 2),
+                (2054, "DescriptionID", 73, 2), // Verified: offset 73 (after 64-byte icon name)
                 (2036, "ButtonDescriptionID", 6, 2),
             ],
         );

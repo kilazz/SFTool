@@ -41,6 +41,7 @@ pub fn get_available_categories(cff_dir: &Path) -> Vec<String> {
     }
     vec![
         "2D Gfx Items (0x07DC)".to_string(),
+        "Spell Lines (0x0806)".to_string(),
         "Spells Master (0x07D2)".to_string(),
         "Items Master (0x07D3)".to_string(),
         "Item Modifiers (0x07D4)".to_string(),
@@ -50,9 +51,11 @@ pub fn get_available_categories(cff_dir: &Path) -> Vec<String> {
         "Races (0x07E6)".to_string(),
         "Units Master (0x07E8)".to_string(),
         "Buildings Master (0x07ED)".to_string(),
+        "Building Collision (0x07EE)".to_string(),
         "Unit Loot Tables (0x07F8)".to_string(),
         "Level Progression (0x0800)".to_string(),
         "Objects Master (0x0802)".to_string(),
+        "Object Collision (0x0809)".to_string(),
         "Unit Equipment (0x07E9)".to_string(),
         "Merchant Inventory (0x07FA)".to_string(),
         "Quests (0x080D)".to_string(),
@@ -259,7 +262,7 @@ pub fn load_editor_items(
         return load_sf1_items(cff_dir, category, filter);
     }
 
-    // Localized Strings loader с пагинацией / ограничением выборки для предотвращения лагов Slint
+    // Localized Strings loader with pagination limit to prevent Slint UI lag
     const MAX_UNFILTERED_ITEMS: usize = 1000;
     let mut items = Vec::new();
     let filter_lower = filter.to_lowercase();

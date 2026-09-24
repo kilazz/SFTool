@@ -10,8 +10,15 @@ pub trait Sf1Record: Sized {
 }
 
 // =============================================================================
-// CATEGORY 2002 (0x07D2) - SpellsMaster
+// CATEGORY 2002 (0x07D2) - SpellsMaster (Verified 76 Bytes Stride)
 // =============================================================================
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpellSkillReq {
+    pub school: u8,
+    pub sub_school: u8,
+    pub level: u8,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpellEntry {
@@ -19,8 +26,8 @@ pub struct SpellEntry {
     pub spell_line_id: u16,
     pub skill_reqs: [u8; 12],
     pub mana_cost: u16,
-    pub cast_time_ms: u16,
-    pub recast_time_ms: u16,
+    pub cast_time_ms: u32,
+    pub recast_time_ms: u32,
     pub min_range: u16,
     pub max_range: u16,
     pub cast_target_faction: u8,
@@ -31,31 +38,35 @@ pub struct SpellEntry {
 }
 
 impl Sf1Record for SpellEntry {
-    const STRIDE: usize = 72;
+    const STRIDE: usize = 76;
 
     fn decode(bytes: &[u8]) -> io::Result<Self> {
         if bytes.len() < Self::STRIDE {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "Buffer too short",
+                "Buffer too short for SpellEntry (expected 76 bytes)",
             ));
         }
         let mut cur = Cursor::new(bytes);
         let spell_id = cur.read_u16::<LittleEndian>()?;
         let spell_line_id = cur.read_u16::<LittleEndian>()?;
+
         let mut skill_reqs = [0u8; 12];
         cur.read_exact(&mut skill_reqs)?;
+
         let mana_cost = cur.read_u16::<LittleEndian>()?;
-        let cast_time_ms = cur.read_u16::<LittleEndian>()?;
-        let recast_time_ms = cur.read_u16::<LittleEndian>()?;
+        let cast_time_ms = cur.read_u32::<LittleEndian>()?;
+        let recast_time_ms = cur.read_u32::<LittleEndian>()?;
         let min_range = cur.read_u16::<LittleEndian>()?;
         let max_range = cur.read_u16::<LittleEndian>()?;
         let cast_target_faction = cur.read_u8()?;
         let cast_target_mode = cur.read_u8()?;
+
         let mut params = [0u32; 10];
         for p in &mut params {
             *p = cur.read_u32::<LittleEndian>()?;
         }
+
         let effect_power = cur.read_u16::<LittleEndian>()?;
         let effect_range = cur.read_u16::<LittleEndian>()?;
 
@@ -80,7 +91,7 @@ impl Sf1Record for SpellEntry {
         if out.len() < Self::STRIDE {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "Buffer too short",
+                "Buffer too short for SpellEntry (expected 76 bytes)",
             ));
         }
         let mut cur = Cursor::new(out);
@@ -88,8 +99,8 @@ impl Sf1Record for SpellEntry {
         cur.write_u16::<LittleEndian>(self.spell_line_id)?;
         cur.write_all(&self.skill_reqs)?;
         cur.write_u16::<LittleEndian>(self.mana_cost)?;
-        cur.write_u16::<LittleEndian>(self.cast_time_ms)?;
-        cur.write_u16::<LittleEndian>(self.recast_time_ms)?;
+        cur.write_u32::<LittleEndian>(self.cast_time_ms)?;
+        cur.write_u32::<LittleEndian>(self.recast_time_ms)?;
         cur.write_u16::<LittleEndian>(self.min_range)?;
         cur.write_u16::<LittleEndian>(self.max_range)?;
         cur.write_u8(self.cast_target_faction)?;
@@ -104,14 +115,73 @@ impl Sf1Record for SpellEntry {
 }
 
 impl SpellEntry {
+    pub fn get_parsed_skills(&self) -> Vec<SpellSkillReq> {
+        let mut reqs = Vec::new();
+        for chunk in self.skill_reqs.as_chunks::<3>().0 {
+            if chunk[0] != 0 {
+                reqs.push(SpellSkillReq {
+                    school: chunk[0],
+                    sub_school: chunk[1],
+                    level: chunk[2],
+                });
+            }
+        }
+        reqs
+    }
+
+    pub fn format_skill_reqs(&self) -> String {
+        let reqs = self.get_parsed_skills();
+        if reqs.is_empty() {
+            return "None".to_string();
+        }
+
+        reqs.iter()
+            .map(|r| {
+                let school_str = match r.school {
+                    1 => "LCA",
+                    2 => "HCA",
+                    3 => "Ranged",
+                    4 => match r.sub_school {
+                        1 => "White[Life]",
+                        2 => "White[Nature]",
+                        3 => "White[Boon]",
+                        _ => "White Magic",
+                    },
+                    5 => match r.sub_school {
+                        1 => "Elem[Fire]",
+                        2 => "Elem[Ice]",
+                        3 => "Elem[Earth]",
+                        _ => "Elemental",
+                    },
+                    6 => match r.sub_school {
+                        1 => "Mind[Enchant]",
+                        2 => "Mind[Offensive]",
+                        3 => "Mind[Defensive]",
+                        _ => "Mind Magic",
+                    },
+                    7 => match r.sub_school {
+                        1 => "Black[Death]",
+                        2 => "Black[Necro]",
+                        3 => "Black[Curse]",
+                        _ => "Black Magic",
+                    },
+                    _ => "Unknown",
+                };
+                format!("{} {}", school_str, r.level)
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     pub fn format_target_faction(&self) -> &'static str {
         match self.cast_target_faction {
             1 => "Enemy",
             2 => "Ally",
-            3 => "Other",
+            3 => "Other/Neutral",
             _ => "Unknown",
         }
     }
+
     pub fn format_target_mode(&self) -> &'static str {
         match self.cast_target_mode {
             1 => "Figure",
@@ -121,6 +191,107 @@ impl SpellEntry {
             5 => "In Area",
             _ => "Unknown",
         }
+    }
+}
+
+// =============================================================================
+// CATEGORY 2054 (0x0806) - SpellLines (Verified 75 Bytes Stride)
+// =============================================================================
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpellLineEntry {
+    pub line_id: u16,
+    pub name_id: u16,
+    pub line_flags: u8,
+    pub school_id: u8,
+    pub sub_school_id: u8,
+    pub max_level: u8,
+    pub ui_order: u8,
+    pub icon_name: String,
+    pub description_id: u16,
+}
+
+impl Sf1Record for SpellLineEntry {
+    const STRIDE: usize = 75;
+
+    fn decode(bytes: &[u8]) -> io::Result<Self> {
+        if bytes.len() < Self::STRIDE {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Buffer too short for SpellLineEntry (expected 75 bytes)",
+            ));
+        }
+        let mut cur = Cursor::new(bytes);
+        let line_id = cur.read_u16::<LittleEndian>()?;
+        let name_id = cur.read_u16::<LittleEndian>()?;
+        let line_flags = cur.read_u8()?;
+        let school_id = cur.read_u8()?;
+        let sub_school_id = cur.read_u8()?;
+        let max_level = cur.read_u8()?;
+        let ui_order = cur.read_u8()?;
+
+        let mut icon_buf = [0u8; 64];
+        cur.read_exact(&mut icon_buf)?;
+        let end = icon_buf.iter().position(|&b| b == 0).unwrap_or(64);
+        let icon_name = crate::cff::decode_windows(&icon_buf[..end]);
+
+        let description_id = cur.read_u16::<LittleEndian>()?;
+
+        Ok(Self {
+            line_id,
+            name_id,
+            line_flags,
+            school_id,
+            sub_school_id,
+            max_level,
+            ui_order,
+            icon_name,
+            description_id,
+        })
+    }
+
+    fn encode(&self, out: &mut [u8]) -> io::Result<()> {
+        if out.len() < Self::STRIDE {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Buffer too short for SpellLineEntry (expected 75 bytes)",
+            ));
+        }
+        let mut cur = Cursor::new(out);
+        cur.write_u16::<LittleEndian>(self.line_id)?;
+        cur.write_u16::<LittleEndian>(self.name_id)?;
+        cur.write_u8(self.line_flags)?;
+        cur.write_u8(self.school_id)?;
+        cur.write_u8(self.sub_school_id)?;
+        cur.write_u8(self.max_level)?;
+        cur.write_u8(self.ui_order)?;
+
+        let mut icon_buf = [0u8; 64];
+        let enc = crate::cff::encode_windows(&self.icon_name);
+        let len = enc.len().min(63);
+        icon_buf[..len].copy_from_slice(&enc[..len]);
+        cur.write_all(&icon_buf)?;
+
+        cur.write_u16::<LittleEndian>(self.description_id)?;
+        Ok(())
+    }
+}
+
+impl SpellLineEntry {
+    pub fn format_school(&self) -> &'static str {
+        match self.school_id {
+            0 => "White / Combat",
+            1 => "Elemental [Fire]",
+            2 => "Elemental [Ice]",
+            3 => "Black Magic",
+            4 => "Mind Magic",
+            5 => "Elemental [Earth]",
+            _ => "General / Other",
+        }
+    }
+
+    pub fn is_aura(&self) -> bool {
+        (self.line_flags & 0x04) != 0 || self.line_flags == 0x1C
     }
 }
 
@@ -585,15 +756,15 @@ impl Sf1Record for RaceEntry {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnitMasterEntry {
-    pub unit_id: u16,          // 0..2
-    pub name_id: u16,          // 2..4
-    pub stats_id: u16,         // 4..6
-    pub xp_gain: u32,          // 6..10
-    pub xp_falloff: u16,       // 10..12
-    pub copper: u32,           // 12..16
-    pub raw_mid: [u8; 7],      // 16..23 (Remaining sub-structure params)
-    pub internal_name: String, // 23..63 (40 bytes null-terminated ASCII string)
-    pub spawn_flag: u8,        // 63..64 (Active / Spawnable flag byte)
+    pub unit_id: u16,
+    pub name_id: u16,
+    pub stats_id: u16,
+    pub xp_gain: u32,
+    pub xp_falloff: u16,
+    pub copper: u32,
+    pub raw_mid: [u8; 7],
+    pub internal_name: String,
+    pub spawn_flag: u8,
 }
 
 impl Sf1Record for UnitMasterEntry {
@@ -689,20 +860,20 @@ impl Sf1Record for UnitEquipmentEntry {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingMasterEntry {
-    pub building_id: u16,        // 0..2
-    pub race_id: u8,             // 2
-    pub can_enter: u8,           // 3
-    pub slots: u8,               // 4 (Worker slots: 0, 1, 5)
-    pub health: u16,             // 5..7
-    pub name_id: u16,            // 7..9
-    pub rot_center_x: i16,       // 9..11
-    pub rot_center_y: i16,       // 11..13
-    pub num_of_polygons: u8,     // 13
-    pub worker_cycle_time: u16,  // 14..16 (e.g. 3000ms = 0x0BB8)
-    pub building_req_id: u16,    // 16..18
-    pub initial_angle: u16,      // 18..20 (e.g. 315 deg = 0x013B)
-    pub description_ext_id: u16, // 20..22
-    pub flags: u8,               // 22
+    pub building_id: u16,
+    pub race_id: u8,
+    pub can_enter: u8,
+    pub slots: u8,
+    pub health: u16,
+    pub name_id: u16,
+    pub rot_center_x: i16,
+    pub rot_center_y: i16,
+    pub num_of_polygons: u8,
+    pub worker_cycle_time: u16,
+    pub building_req_id: u16,
+    pub initial_angle: u16,
+    pub description_ext_id: u16,
+    pub flags: u8,
 }
 
 impl Sf1Record for BuildingMasterEntry {
@@ -786,13 +957,13 @@ impl Sf1Record for TerrainCultivationEntry {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnitLootTableEntry {
-    pub unit_id: u16, // 0..2
-    pub slot: u8,     // 2
-    pub item1: u16,   // 3..5
-    pub chance1: u8,  // 5
-    pub item2: u16,   // 6..8
-    pub chance2: u8,  // 8
-    pub item3: u16,   // 9..11
+    pub unit_id: u16,
+    pub slot: u8,
+    pub item1: u16,
+    pub chance1: u8,
+    pub item2: u16,
+    pub chance2: u8,
+    pub item3: u16,
 }
 
 impl Sf1Record for UnitLootTableEntry {
@@ -904,24 +1075,24 @@ impl Sf1Record for ComplexPropertyEntry {
 }
 
 // =============================================================================
-// CATEGORY 2050 (0x0802) - ObjectsMaster (Verified 60 Bytes Stride)
+// CATEGORY 2050 (0x0802) - ObjectsMaster (Verified 54 Bytes Stride)
 // =============================================================================
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObjectMasterEntry {
-    pub object_id: u16,        // 0..2
-    pub name_id: u16,          // 2..4
-    pub flags: u8,             // 4
-    pub flatten_mode: u8,      // 5
-    pub polygon_num: u8,       // 6
-    pub category_name: String, // 7..54 (47 bytes ASCII string)
-    pub resource_amount: u16,  // 54..56
-    pub width: u16,            // 56..58
-    pub height: u16,           // 58..60
+    pub object_id: u16,
+    pub name_id: u16,
+    pub flags: u8,
+    pub flatten_mode: u8,
+    pub polygon_num: u8,
+    pub category_name: String,
+    pub resource_amount: u16,
+    pub width: u16,
+    pub height: u16,
 }
 
 impl Sf1Record for ObjectMasterEntry {
-    const STRIDE: usize = 60;
+    const STRIDE: usize = 54;
 
     fn decode(bytes: &[u8]) -> io::Result<Self> {
         let mut cur = Cursor::new(bytes);
@@ -931,9 +1102,9 @@ impl Sf1Record for ObjectMasterEntry {
         let flatten_mode = cur.read_u8()?;
         let polygon_num = cur.read_u8()?;
 
-        let mut str_buf = [0u8; 47];
+        let mut str_buf = [0u8; 41];
         cur.read_exact(&mut str_buf)?;
-        let end = str_buf.iter().position(|&b| b == 0).unwrap_or(47);
+        let end = str_buf.iter().position(|&b| b == 0).unwrap_or(41);
         let category_name = crate::cff::decode_windows(&str_buf[..end]);
 
         let resource_amount = cur.read_u16::<LittleEndian>()?;
@@ -961,9 +1132,9 @@ impl Sf1Record for ObjectMasterEntry {
         cur.write_u8(self.flatten_mode)?;
         cur.write_u8(self.polygon_num)?;
 
-        let mut str_buf = [0u8; 47];
+        let mut str_buf = [0u8; 41];
         let enc = crate::cff::encode_windows(&self.category_name);
-        let len = enc.len().min(46);
+        let len = enc.len().min(40);
         str_buf[..len].copy_from_slice(&enc[..len]);
         cur.write_all(&str_buf)?;
 
@@ -973,6 +1144,7 @@ impl Sf1Record for ObjectMasterEntry {
         Ok(())
     }
 }
+
 #[allow(dead_code)]
 impl ObjectMasterEntry {
     pub fn blocks_terrain(&self) -> bool {
@@ -995,12 +1167,12 @@ impl ObjectMasterEntry {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PortalEntry {
-    pub portal_id: u16, // 0..2
-    pub map_id: u32,    // 2..6
-    pub pos_x: u16,     // 6..8
-    pub pos_y: u16,     // 8..10
-    pub is_default: u8, // 10
-    pub name_id: u16,   // 11..13 (Name link in LocalizedStrings)
+    pub portal_id: u16,
+    pub map_id: u32,
+    pub pos_x: u16,
+    pub pos_y: u16,
+    pub is_default: u8,
+    pub name_id: u16,
 }
 
 impl Sf1Record for PortalEntry {
@@ -1065,12 +1237,12 @@ impl Sf1Record for DescriptionEntry {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct QuestEntry {
-    pub quest_id: u32,        // 0..4
-    pub parent_quest_id: u32, // 4..8
-    pub is_main_quest: u8,    // 8
-    pub name_id: u16,         // 9..11
-    pub description_id: u16,  // 11..13
-    pub order_index: u32,     // 13..17
+    pub quest_id: u32,
+    pub parent_quest_id: u32,
+    pub is_main_quest: u8,
+    pub name_id: u16,
+    pub description_id: u16,
+    pub order_index: u32,
 }
 
 impl Sf1Record for QuestEntry {
