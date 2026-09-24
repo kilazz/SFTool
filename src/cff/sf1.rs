@@ -183,7 +183,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x07F4,
         name: "TechTreeUpgrades",
-        stride: 34,
+        stride: 90, // Verified: 90 bytes exact (64B icon + 7x resource costs)
         default_c_type: 1,
         description: "Tech upgrades (Cat 2036)",
     },
@@ -344,7 +344,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x0811,
         name: "ObjectLootTables",
-        stride: 12,
+        stride: 11, // Verified: 11 bytes cascading loot
         default_c_type: 1,
         description: "Chest loot tables (Cat 2065)",
     },
@@ -482,7 +482,40 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 3. Items Master (0x07D3)
+    // 3. Tech Tree Upgrades (0x07F4 / Cat 2036) - Verified 90-byte stride
+    else if (category.contains("0x07F4") || category.contains("2036"))
+        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07F4)
+        && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
+    {
+        for chunk_slice in bytes.as_chunks::<{ TechTreeUpgradeEntry::STRIDE }>().0 {
+            if let Ok(u) = TechTreeUpgradeEntry::decode(chunk_slice) {
+                let display = format!(
+                    "Upgrade #{:<3} [Bld: {:<3}] [{}] | Time: {}s | NameID: {}",
+                    u.upgrade_id,
+                    u.building_id,
+                    u.icon_name,
+                    u.research_time_ms / 1000,
+                    u.name_id
+                );
+                if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
+                    items.push(EditorItem {
+                        id_str: u.upgrade_id.to_string(),
+                        val1: u.icon_name,
+                        val2: format!(
+                            "Bld: {} | Time: {}ms | Costs(W/S/I/L/A/M/F): {}/{}/{}/{}/{}/{}/{} | NameID: {} | DescID: {}",
+                            u.building_id,
+                            u.research_time_ms,
+                            u.costs[0], u.costs[1], u.costs[2], u.costs[3], u.costs[4], u.costs[5], u.costs[6],
+                            u.name_id,
+                            u.description_id
+                        ),
+                        display,
+                    });
+                }
+            }
+        }
+    }
+    // 4. Items Master (0x07D3)
     else if (category.contains("0x07D3") || category.contains("2003"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D3)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -507,7 +540,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 4. Item Stats Modifiers (0x07D4)
+    // 5. Item Stats Modifiers (0x07D4)
     else if (category.contains("0x07D4") || category.contains("2004"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D4)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -543,7 +576,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 5. Unit Stats (0x07D5)
+    // 6. Unit Stats (0x07D5)
     else if (category.contains("0x07D5") || category.contains("2005"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D5)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -584,7 +617,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 6. 2D Gfx Items (0x07DC)
+    // 7. 2D Gfx Items (0x07DC)
     else if (category.contains("0x07DC") || category.contains("2012"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -606,7 +639,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 7. Weapon Stats (0x07DF)
+    // 8. Weapon Stats (0x07DF)
     else if (category.contains("0x07DF") || category.contains("2015"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DF)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -632,7 +665,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 8. Spells BiMap (0x07E2)
+    // 9. Spells BiMap (0x07E2)
     else if (category.contains("0x07E2") || category.contains("2018"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E2)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -654,7 +687,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 9. Races (0x07E6)
+    // 10. Races (0x07E6)
     else if (category.contains("0x07E6") || category.contains("2022"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E6)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -680,7 +713,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 10. Units Master (0x07E8) - 64-byte verified stride
+    // 11. Units Master (0x07E8) - 64-byte verified stride
     else if (category.contains("0x07E8") || category.contains("2024"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E8)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -706,7 +739,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 11. Buildings Master (0x07ED) - 23-byte verified stride
+    // 12. Buildings Master (0x07ED) - 23-byte verified stride
     else if (category.contains("0x07ED") || category.contains("2029"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07ED)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -735,7 +768,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 12. Building Collision Polygons (0x07EE / Cat 2030) - Dynamic Length Parsing
+    // 13. Building Collision Polygons (0x07EE / Cat 2030) - Dynamic Length Parsing
     else if (category.contains("0x07EE") || category.contains("2030"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07EE)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -776,7 +809,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 13. Unit Loot Tables (0x07F8) - 11-byte verified cascading stride
+    // 14. Unit Loot Tables (0x07F8) - 11-byte verified cascading stride
     else if (category.contains("0x07F8") || category.contains("2040"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07F8)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -802,7 +835,33 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 14. Level Progression (0x0800)
+    // 15. Chest Loot Tables (0x0811 / Cat 2065) - 11-byte verified cascading stride
+    else if (category.contains("0x0811") || category.contains("2065"))
+        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0811)
+        && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
+    {
+        for chunk_slice in bytes.as_chunks::<{ ObjectLootTableEntry::STRIDE }>().0 {
+            if let Ok(l) = ObjectLootTableEntry::decode(chunk_slice) {
+                let (eff1, eff2, eff3) = calculate_cascade_loot_chances(l.chance1, l.chance2);
+                let display = format!(
+                    "Chest Loot #{:<4} [Slot {}] | Items: {}, {}, {}",
+                    l.object_id, l.slot, l.item1, l.item2, l.item3
+                );
+                if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
+                    items.push(EditorItem {
+                        id_str: format!("{}:{}", l.object_id, l.slot),
+                        val1: format!("{}, {}, {}", l.item1, l.item2, l.item3),
+                        val2: format!(
+                            "Chances: {}%, {}% | Cascading: [{:.1}%, {:.1}%, {:.1}%]",
+                            l.chance1, l.chance2, eff1, eff2, eff3
+                        ),
+                        display,
+                    });
+                }
+            }
+        }
+    }
+    // 16. Level Progression (0x0800)
     else if (category.contains("0x0800") || category.contains("2048"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0800)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -827,7 +886,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 15. Objects Master (0x0802) - 54-byte verified stride
+    // 17. Objects Master (0x0802) - 54-byte verified stride
     else if (category.contains("0x0802") || category.contains("2050"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0802)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -854,7 +913,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 16. Unit Equipment (0x07E9)
+    // 18. Unit Equipment (0x07E9)
     else if (category.contains("0x07E9") || category.contains("2025"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E9)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -877,7 +936,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 17. Merchant Inventory (0x07FA)
+    // 19. Merchant Inventory (0x07FA)
     else if (category.contains("0x07FA") || category.contains("2042"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07FA)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -899,7 +958,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 18. Quests (0x080D) - 17-byte verified stride
+    // 20. Quests (0x080D) - 17-byte verified stride
     else if (category.contains("0x080D") || category.contains("2061"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080D)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -929,7 +988,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 19. Weapon Types (0x080F)
+    // 21. Weapon Types (0x080F)
     else if (category.contains("0x080F") || category.contains("2063"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080F)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -951,7 +1010,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 20. Weapon Materials (0x0810)
+    // 22. Weapon Materials (0x0810)
     else if (category.contains("0x0810") || category.contains("2064"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0810)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -973,7 +1032,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 21. Item Sets (0x0818)
+    // 23. Item Sets (0x0818)
     else if (category.contains("0x0818") || category.contains("2072"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0818)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -995,7 +1054,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 22. Terrain Cultivation (0x07F0)
+    // 24. Terrain Cultivation (0x07F0)
     else if (category.contains("0x07F0") || category.contains("2032"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07F0)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -1017,7 +1076,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 23. Portals (0x0805) - 13-byte verified stride
+    // 25. Portals (0x0805) - 13-byte verified stride
     else if (category.contains("0x0805") || category.contains("2053"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0805)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -1043,7 +1102,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 24. Descriptions (0x080A)
+    // 26. Descriptions (0x080A)
     else if (category.contains("0x080A") || category.contains("2058"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080A)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -1065,7 +1124,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 25. Object Collision Polygons (0x0809) - Dynamic Length Parsing
+    // 27. Object Collision Polygons (0x0809) - Dynamic Length Parsing
     else if (category.contains("0x0809") || category.contains("2057"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0809)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -1183,6 +1242,22 @@ pub fn save_sf1_item(
                 e.description_id = desc;
             }
         });
+    } else if category.contains("0x07F4") || category.contains("2036") {
+        update_record!(
+            0x07F4,
+            TechTreeUpgradeEntry,
+            |e: &mut TechTreeUpgradeEntry| {
+                if !val1.is_empty() {
+                    e.icon_name = val1.trim().to_string();
+                }
+                if let Some(t) = parse_numeric_key_u32(val2, "Time") {
+                    e.research_time_ms = t;
+                }
+                if let Some(desc) = parse_numeric_key_u16(val2, "DescID") {
+                    e.description_id = desc;
+                }
+            }
+        );
     } else if category.contains("0x07D3") || category.contains("2003") {
         update_record!(0x07D3, ItemMasterEntry, |e: &mut ItemMasterEntry| {
             if let Some(buy) = parse_numeric_key_u32(val1, "Buy") {
@@ -1294,6 +1369,26 @@ pub fn save_sf1_item(
                 e.item3 = i3;
             }
         });
+    } else if category.contains("0x0811") || category.contains("2065") {
+        update_record!(
+            0x0811,
+            ObjectLootTableEntry,
+            |e: &mut ObjectLootTableEntry| {
+                let items: Vec<u16> = val1
+                    .split(',')
+                    .filter_map(|s| s.trim().parse::<u16>().ok())
+                    .collect();
+                if let Some(&i1) = items.first() {
+                    e.item1 = i1;
+                }
+                if let Some(&i2) = items.get(1) {
+                    e.item2 = i2;
+                }
+                if let Some(&i3) = items.get(2) {
+                    e.item3 = i3;
+                }
+            }
+        );
     } else if category.contains("0x0800") || category.contains("2048") {
         update_record!(
             0x0800,

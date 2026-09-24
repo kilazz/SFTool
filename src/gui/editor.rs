@@ -58,6 +58,8 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
             }
 
             if task.cat.contains("0x07DC")
+                || task.cat.contains("0x0806")
+                || task.cat.contains("0x07F4")
                 || task.cat.contains("0x2335")
                 || task.cat.contains("0x234E")
             {

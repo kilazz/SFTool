@@ -952,6 +952,88 @@ impl Sf1Record for TerrainCultivationEntry {
 }
 
 // =============================================================================
+// CATEGORY 2036 (0x07F4) - TechTreeUpgrades (Verified 90 Bytes Stride)
+// =============================================================================
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TechTreeUpgradeEntry {
+    pub upgrade_id: u16,
+    pub building_id: u16,
+    pub name_id: u16,
+    pub description_id: u16,
+    pub costs: [u16; 7], // Wood, Stone, Iron, Lenya, Aria, Moonglass, Food
+    pub icon_name: String,
+    pub research_time_ms: u32,
+}
+
+impl Sf1Record for TechTreeUpgradeEntry {
+    const STRIDE: usize = 90;
+
+    fn decode(bytes: &[u8]) -> io::Result<Self> {
+        if bytes.len() < Self::STRIDE {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Buffer too short for TechTreeUpgradeEntry (expected 90 bytes)",
+            ));
+        }
+        let mut cur = Cursor::new(bytes);
+        let upgrade_id = cur.read_u16::<LittleEndian>()?;
+        let building_id = cur.read_u16::<LittleEndian>()?;
+        let name_id = cur.read_u16::<LittleEndian>()?;
+        let description_id = cur.read_u16::<LittleEndian>()?;
+
+        let mut costs = [0u16; 7];
+        for c in &mut costs {
+            *c = cur.read_u16::<LittleEndian>()?;
+        }
+
+        let mut icon_buf = [0u8; 64];
+        cur.read_exact(&mut icon_buf)?;
+        let end = icon_buf.iter().position(|&b| b == 0).unwrap_or(64);
+        let icon_name = crate::cff::decode_windows(&icon_buf[..end]);
+
+        let research_time_ms = cur.read_u32::<LittleEndian>()?;
+
+        Ok(Self {
+            upgrade_id,
+            building_id,
+            name_id,
+            description_id,
+            costs,
+            icon_name,
+            research_time_ms,
+        })
+    }
+
+    fn encode(&self, out: &mut [u8]) -> io::Result<()> {
+        if out.len() < Self::STRIDE {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Buffer too short for TechTreeUpgradeEntry (expected 90 bytes)",
+            ));
+        }
+        let mut cur = Cursor::new(out);
+        cur.write_u16::<LittleEndian>(self.upgrade_id)?;
+        cur.write_u16::<LittleEndian>(self.building_id)?;
+        cur.write_u16::<LittleEndian>(self.name_id)?;
+        cur.write_u16::<LittleEndian>(self.description_id)?;
+
+        for c in self.costs {
+            cur.write_u16::<LittleEndian>(c)?;
+        }
+
+        let mut icon_buf = [0u8; 64];
+        let enc = crate::cff::encode_windows(&self.icon_name);
+        let len = enc.len().min(63);
+        icon_buf[..len].copy_from_slice(&enc[..len]);
+        cur.write_all(&icon_buf)?;
+
+        cur.write_u32::<LittleEndian>(self.research_time_ms)?;
+        Ok(())
+    }
+}
+
+// =============================================================================
 // CATEGORY 2040 (0x07F8) - UnitLootTables (Verified 11 Bytes Stride)
 // =============================================================================
 
@@ -985,6 +1067,50 @@ impl Sf1Record for UnitLootTableEntry {
     fn encode(&self, out: &mut [u8]) -> io::Result<()> {
         let mut cur = Cursor::new(out);
         cur.write_u16::<LittleEndian>(self.unit_id)?;
+        cur.write_u8(self.slot)?;
+        cur.write_u16::<LittleEndian>(self.item1)?;
+        cur.write_u8(self.chance1)?;
+        cur.write_u16::<LittleEndian>(self.item2)?;
+        cur.write_u8(self.chance2)?;
+        cur.write_u16::<LittleEndian>(self.item3)?;
+        Ok(())
+    }
+}
+
+// =============================================================================
+// CATEGORY 2065 (0x0811) - ObjectLootTables (Verified 11 Bytes Stride)
+// =============================================================================
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ObjectLootTableEntry {
+    pub object_id: u16,
+    pub slot: u8,
+    pub item1: u16,
+    pub chance1: u8,
+    pub item2: u16,
+    pub chance2: u8,
+    pub item3: u16,
+}
+
+impl Sf1Record for ObjectLootTableEntry {
+    const STRIDE: usize = 11;
+
+    fn decode(bytes: &[u8]) -> io::Result<Self> {
+        let mut cur = Cursor::new(bytes);
+        Ok(Self {
+            object_id: cur.read_u16::<LittleEndian>()?,
+            slot: cur.read_u8()?,
+            item1: cur.read_u16::<LittleEndian>()?,
+            chance1: cur.read_u8()?,
+            item2: cur.read_u16::<LittleEndian>()?,
+            chance2: cur.read_u8()?,
+            item3: cur.read_u16::<LittleEndian>()?,
+        })
+    }
+
+    fn encode(&self, out: &mut [u8]) -> io::Result<()> {
+        let mut cur = Cursor::new(out);
+        cur.write_u16::<LittleEndian>(self.object_id)?;
         cur.write_u8(self.slot)?;
         cur.write_u16::<LittleEndian>(self.item1)?;
         cur.write_u8(self.chance1)?;

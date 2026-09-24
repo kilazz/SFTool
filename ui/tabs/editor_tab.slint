@@ -25,7 +25,9 @@ export component EditorTab inherits HorizontalLayout {
     in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
     in-out property <[string]> available_categories: [
         "2D Gfx Items (0x07DC)",
+        "Spell Lines (0x0806)",
         "Spells Master (0x07D2)",
+        "Tech Tree Upgrades (0x07F4)",
         "Items Master (0x07D3)",
         "Item Modifiers (0x07D4)",
         "Unit Stats (0x07D5)",
@@ -34,10 +36,21 @@ export component EditorTab inherits HorizontalLayout {
         "Races (0x07E6)",
         "Units Master (0x07E8)",
         "Buildings Master (0x07ED)",
+        "Building Collision (0x07EE)",
         "Unit Loot Tables (0x07F8)",
+        "Chest Loot Tables (0x0811)",
         "Level Progression (0x0800)",
         "Objects Master (0x0802)",
         "Object Collision (0x0809)",
+        "Unit Equipment (0x07E9)",
+        "Merchant Inventory (0x07FA)",
+        "Quests (0x080D)",
+        "Weapon Types (0x080F)",
+        "Weapon Materials (0x0810)",
+        "Item Sets (0x0818)",
+        "Terrain Cultivation (0x07F0)",
+        "Portals (0x0805)",
+        "Descriptions (0x080A)",
         "Localized Strings"
     ];
     in-out property <string> editor_lang_filter: "All Languages";
@@ -638,7 +651,7 @@ export component EditorTab inherits HorizontalLayout {
                 }
             }
 
-            // B. SINGLE LIVE PREVIEW SHOWCASE FOR 2D / 3D GFX ITEMS & ABILITIES
+            // B. SINGLE LIVE PREVIEW SHOWCASE FOR 2D / 3D GFX ITEMS, SPELL LINES, TECH UPGRADES & ABILITIES
             if root.editor_active_category != "Spells Mapping (0x07E2)" && root.editor_active_category != "Localized Strings": HorizontalLayout {
                 spacing: 12px;
                 alignment: start;
@@ -717,11 +730,11 @@ export component EditorTab inherits HorizontalLayout {
             }
 
             if root.editor_active_category != "Localized Strings": FormRow {
-                title: (root.editor_active_category == "2D Gfx Items (0x07DC)" || root.editor_active_category == "Visual Meshes (0x2335)" || root.editor_active_category == "Abilities (0x234E)") ? "Mesh / Icon Asset:" :
+                title: (root.editor_active_category == "2D Gfx Items (0x07DC)" || root.editor_active_category == "Visual Meshes (0x2335)" || root.editor_active_category == "Abilities (0x234E)" || root.editor_active_category == "Spell Lines (0x0806)" || root.editor_active_category == "Tech Tree Upgrades (0x07F4)") ? "Mesh / Icon Asset:" :
                     (root.editor_active_category == "Weapon Stats (0x07DF)") ? "Damage (Min-Max):" :
                     (root.editor_active_category == "Units Master (0x07E8)") ? "XP Gain:" :
-                    (root.editor_active_category == "Unit Loot Tables (0x07F8)") ? "Loot Items (1, 2, 3):" :
-                    (root.editor_active_category == "Spells Master (0x07D2)") ? "Mana & Power:" :
+                    (root.editor_active_category == "Unit Loot Tables (0x07F8)" || root.editor_active_category == "Chest Loot Tables (0x0811)") ? "Loot Items (1, 2, 3):" :
+                    (root.editor_active_category == "Spells Master (0x07D2)") ? "Mana, Cast & CD:" :
                     (root.editor_active_category == "Items Master (0x07D3)") ? "Buy & Sell Prices:" :
                     (root.editor_active_category == "Item Modifiers (0x07D4)") ? "Attributes & Armor:" :
                     (root.editor_active_category == "Unit Stats (0x07D5)") ? "Level & Race:" :
@@ -729,7 +742,7 @@ export component EditorTab inherits HorizontalLayout {
                     (root.editor_active_category == "Buildings Master (0x07ED)") ? "Health & Slots:" :
                     (root.editor_active_category == "Level Progression (0x0800)") ? "XP Required:" :
                     (root.editor_active_category == "Objects Master (0x0802)") ? "Resource Amount:" :
-                    (root.editor_active_category == "Object Collision (0x0809)") ? "Vertex Count:" :
+                    (root.editor_active_category == "Object Collision (0x0809)" || root.editor_active_category == "Building Collision (0x07EE)") ? "Vertex Count:" :
                     "Target / Scroll ID:";
                 label-width: 140px;
                 LineEdit {
@@ -751,7 +764,7 @@ export component EditorTab inherits HorizontalLayout {
 
             CustomButton {
                 text: "Save Changes to Database Chunk (.dat)";
-                enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "" && root.editor_active_category != "Object Collision (0x0809)";
+                enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "" && root.editor_active_category != "Object Collision (0x0809)" && root.editor_active_category != "Building Collision (0x07EE)";
                 primary-color: #23a55a;
                 height: 32px;
                 clicked => {
@@ -771,12 +784,12 @@ export component EditorTab inherits HorizontalLayout {
             }
 
             Text {
-                text: "Live Visual Preview & Multi-Language Guide:\n" +
+                text: "Live Visual Preview & Database Modding Guide:\n" +
                     "• Asset Source: Select a .pak file or folder to stream DDS/TGA textures directly on the fly.\n" +
                     "• Phenomic VFS Layering: Automatically mounts archives in reverse order (sf35.pak -> sf0.pak).\n" +
-                    "• Spells Mapping: Side-by-side Dual Cards cross-referencing Combat Spell and Inventory Scroll.\n" +
-                    "• Math Architecture: str_id = (campaign << 24) | (lang_id << 16) | base_id.\n" +
-                    "• ↶ Undo / ↷ Redo: Revert changes made during current session.";
+                    "• Spells & Tech Upgrades: Full live rendering for spells, spell line trees, and RTS building research.\n" +
+                    "• Exact Architecture: 100% verified binary strides for all 49 game database chunks.\n" +
+                    "• ↶ Undo / ↷ Redo: Safely revert or reapply changes made during the current editing session.";
                 color: #808080;
                 font-size: 12px;
                 wrap: word-wrap;
