@@ -1,13 +1,16 @@
+// src/cff/localization.rs
+
 use super::container::Manifest;
 use super::editor::load_editor_items;
 use super::text::{decode_by_lang, encode_by_lang};
 use crate::UiLogger;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File};
-use std::io::{self, Cursor, Write};
+use std::fs;
+use std::io::{self, Cursor};
 use std::path::Path;
 
+/// Canonical default languages supported natively by the vanilla SpellForce.exe engine (0..=4).
 pub fn get_language_tag_map(cff_dir: &Path) -> BTreeMap<u8, String> {
     let mut map = BTreeMap::new();
     map.insert(0, "DE".to_string());
@@ -16,6 +19,7 @@ pub fn get_language_tag_map(cff_dir: &Path) -> BTreeMap<u8, String> {
     map.insert(3, "ES".to_string());
     map.insert(4, "IT".to_string());
 
+    // Custom modding slots (e.g. 5=RU, 6=PL) are loaded dynamically from project metadata
     let meta_path = cff_dir.join(".lang_tags.json");
     if meta_path.exists()
         && let Ok(content) = fs::read_to_string(&meta_path)
@@ -40,8 +44,8 @@ pub fn save_language_tag(cff_dir: &Path, slot: u8, tag: &str) -> io::Result<()> 
     }
 
     let meta_path = cff_dir.join(".lang_tags.json");
-    let f = File::create(meta_path)?;
-    serde_json::to_writer_pretty(f, &str_map)?;
+    let json_bytes = serde_json::to_vec_pretty(&str_map)?;
+    crate::tools::atomic_write(&meta_path, &json_bytes)?;
     Ok(())
 }
 
@@ -52,6 +56,7 @@ pub fn get_available_languages_display(cff_dir: &Path) -> Vec<String> {
     let manifest_path = cff_dir.join("manifest.json");
     let mut detected_slots = BTreeSet::new();
 
+    // Dynamically scan GameData.cff string chunks to discover what slots are actually present
     if let Ok(m_str) = fs::read_to_string(manifest_path)
         && let Ok(manifest) = serde_json::from_str::<Manifest>(&m_str)
     {
@@ -74,6 +79,7 @@ pub fn get_available_languages_display(cff_dir: &Path) -> Vec<String> {
         }
     }
 
+    // Fallback to the 5 official vanilla slots if container is empty or unindexed
     if detected_slots.is_empty() {
         for i in 0..=4 {
             detected_slots.insert(i);
@@ -91,7 +97,7 @@ pub fn get_available_languages_display(cff_dir: &Path) -> Vec<String> {
             2 => "French",
             3 => "Spanish",
             4 => "Italian",
-            _ => "Custom",
+            _ => "Custom / Mod",
         };
         list.push(format!("Slot {}: {} [{}]", slot, lang_name, tag));
     }
@@ -110,8 +116,6 @@ pub fn parse_slot_number(lang_str: &str) -> u8 {
         3
     } else if lang_str.contains("Slot 4") {
         4
-    } else if lang_str.contains("Slot 5") {
-        5
     } else if let Some(part) = lang_str.strip_prefix("Slot ") {
         part.chars()
             .take_while(|c| c.is_ascii_digit())
@@ -139,6 +143,9 @@ pub fn export_single_language(
     let mut clean_map: BTreeMap<String, String> = BTreeMap::new();
 
     for it in &items {
+        if it.id_str.is_empty() {
+            continue; // Skip UI pagination banner
+        }
         if let Some(pos) = it.val2.find("Base ID: ") {
             let id_part = &it.val2[pos + 9..];
             clean_map.insert(id_part.to_string(), it.val1.clone());
@@ -148,8 +155,8 @@ pub fn export_single_language(
     }
 
     let count = clean_map.len();
-    let f = File::create(out_json)?;
-    serde_json::to_writer_pretty(f, &clean_map)?;
+    let json_bytes = serde_json::to_vec_pretty(&clean_map)?;
+    crate::tools::atomic_write(out_json, &json_bytes)?;
 
     logger.log(&format!(
         "[+] Successfully exported {} clean phrases to {:?}",
@@ -194,6 +201,9 @@ pub fn clone_and_export_language(
     let mut clean_map: BTreeMap<String, String> = BTreeMap::new();
 
     for it in &items {
+        if it.id_str.is_empty() {
+            continue;
+        }
         if let Some(pos) = it.val2.find("Base ID: ") {
             let id_part = &it.val2[pos + 9..];
             clean_map.insert(id_part.to_string(), it.val1.clone());
@@ -202,8 +212,8 @@ pub fn clone_and_export_language(
         }
     }
 
-    let f = File::create(export_json_path)?;
-    serde_json::to_writer_pretty(f, &clean_map)?;
+    let json_bytes = serde_json::to_vec_pretty(&clean_map)?;
+    crate::tools::atomic_write(export_json_path, &json_bytes)?;
 
     logger.log(&format!(
         "[+] Successfully cloned {} phrases! Clean JSON saved to: {:?}",
@@ -237,7 +247,7 @@ pub fn clone_language_slot(
         if !chunk_path.exists() {
             continue;
         }
-        let data = fs::read(&chunk_path)?;
+        let mut data = fs::read(&chunk_path)?;
         if data.len() < 566 || !data.len().is_multiple_of(566) {
             continue;
         }
@@ -273,8 +283,9 @@ pub fn clone_language_slot(
         }
 
         if !new_blocks.is_empty() {
-            let mut file = fs::OpenOptions::new().append(true).open(&chunk_path)?;
-            file.write_all(&new_blocks)?;
+            data.extend_from_slice(&new_blocks);
+            crate::tools::atomic_write(&chunk_path, &data)?;
+
             logger.log(&format!(
                 "[+] Appended {} blocks to {}",
                 new_blocks.len() / 566,
@@ -293,7 +304,8 @@ pub fn clone_language_slot(
                 let new_key = format!("f566_{:08}_{}", new_offset, new_str_id);
                 map.insert(new_key, text);
             }
-            serde_json::to_writer_pretty(File::create(&json_path)?, &map)?;
+            let encoded = serde_json::to_vec_pretty(&map)?;
+            crate::tools::atomic_write(&json_path, &encoded)?;
         }
     }
 
@@ -362,7 +374,7 @@ pub fn replace_slot_from_json(
             }
         }
 
-        File::create(&chunk_path)?.write_all(&data)?;
+        crate::tools::atomic_write(&chunk_path, &data)?;
     }
 
     let json_dir = cff_dir.join("texts_json");
@@ -392,7 +404,8 @@ pub fn replace_slot_from_json(
                         }
                     }
                 }
-                serde_json::to_writer_pretty(File::create(&p)?, &map)?;
+                let encoded = serde_json::to_vec_pretty(&map)?;
+                crate::tools::atomic_write(&p, &encoded)?;
             }
         }
     }

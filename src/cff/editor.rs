@@ -1,3 +1,5 @@
+// src/cff/editor.rs
+
 use super::container::Manifest;
 use super::localization::get_language_tag_map;
 use super::sf1::{load_sf1_items, save_sf1_item};
@@ -5,8 +7,8 @@ use super::sf2::{load_sf2_items, save_sf2_item};
 use super::text::{decode_windows, encode_by_lang};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::collections::BTreeMap;
-use std::fs::{self, File};
-use std::io::{self, Cursor, Write};
+use std::fs;
+use std::io::{self, Cursor};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug)]
@@ -24,7 +26,6 @@ pub struct SpellVisualDetails {
     pub scroll_mesh: String,
 }
 
-/// Dynamically returns the appropriate category list based on whether the CFF is SF1 or SF2.
 pub fn get_available_categories(cff_dir: &Path) -> Vec<String> {
     let manifest_path = cff_dir.join("manifest.json");
     if let Ok(m_str) = fs::read_to_string(manifest_path)
@@ -40,15 +41,30 @@ pub fn get_available_categories(cff_dir: &Path) -> Vec<String> {
     }
     vec![
         "2D Gfx Items (0x07DC)".to_string(),
-        "Spells Mapping (0x07E2)".to_string(),
+        "Spells Master (0x07D2)".to_string(),
+        "Items Master (0x07D3)".to_string(),
+        "Item Modifiers (0x07D4)".to_string(),
+        "Unit Stats (0x07D5)".to_string(),
         "Weapon Stats (0x07DF)".to_string(),
+        "Spells Mapping (0x07E2)".to_string(),
+        "Races (0x07E6)".to_string(),
         "Units Master (0x07E8)".to_string(),
+        "Buildings Master (0x07ED)".to_string(),
         "Unit Loot Tables (0x07F8)".to_string(),
+        "Level Progression (0x0800)".to_string(),
+        "Objects Master (0x0802)".to_string(),
+        "Unit Equipment (0x07E9)".to_string(),
+        "Merchant Inventory (0x07FA)".to_string(),
+        "Quests (0x080D)".to_string(),
+        "Weapon Types (0x080F)".to_string(),
+        "Weapon Materials (0x0810)".to_string(),
+        "Item Sets (0x0818)".to_string(),
+        "Terrain Cultivation (0x07F0)".to_string(),
+        "Portals (0x0805)".to_string(),
+        "Descriptions (0x080A)".to_string(),
         "Localized Strings".to_string(),
     ]
 }
-
-// --- VFS PAK ORDER & RESOLVER ---
 
 fn get_pak_order_key(path: &Path) -> (u32, String) {
     let stem = path
@@ -91,7 +107,6 @@ pub fn find_and_load_texture(
 
     let extensions = ["dds", "tga", "png"];
 
-    // 1. Explicit asset source
     if asset_source.is_file() {
         if let Some((bytes, fname)) =
             crate::pak::read_file_from_pak(asset_source, clean_name, &extensions)
@@ -112,7 +127,6 @@ pub fn find_and_load_texture(
         }
     }
 
-    // 2. Relative search around cff_dir
     let mut search_dirs = Vec::new();
     search_dirs.push(cff_dir.to_path_buf());
     if let Some(p) = cff_dir.parent() {
@@ -232,31 +246,26 @@ pub fn resolve_spell_cross_reference(
     }
 }
 
-// --- DISPATCHER ---
-
 pub fn load_editor_items(
     cff_dir: &Path,
     category: &str,
     filter: &str,
     lang_filter: &str,
 ) -> Vec<EditorItem> {
-    if category.contains("0x07DC")
-        || category.contains("0x07E2")
-        || category.contains("0x07DF")
-        || category.contains("0x07E8")
-        || category.contains("0x07F8")
-    {
-        return load_sf1_items(cff_dir, category, filter);
-    }
     if category.contains("0x2335") || category.contains("0x234E") || category.contains("0x2330") {
         return load_sf2_items(cff_dir, category, filter);
     }
+    if category != "Localized Strings" {
+        return load_sf1_items(cff_dir, category, filter);
+    }
 
-    // Localized Strings loader
+    // Localized Strings loader с пагинацией / ограничением выборки для предотвращения лагов Slint
+    const MAX_UNFILTERED_ITEMS: usize = 1000;
     let mut items = Vec::new();
     let filter_lower = filter.to_lowercase();
     let tags = get_language_tag_map(cff_dir);
     let json_dir = cff_dir.join("texts_json");
+    let mut total_matches = 0;
 
     if let Ok(entries) = fs::read_dir(json_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
@@ -300,20 +309,39 @@ pub fn load_editor_items(
 
                     let display = format!("[{}]{} #{:<5} | {}", lang_tag, camp_str, b_id, v);
                     if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
-                        items.push(EditorItem {
-                            id_str: format!("{}:{}", fname, k),
-                            val1: v,
-                            val2: format!(
-                                "Slot: {} ({}){} | Base ID: {}",
-                                l_id, lang_tag, camp_str, b_id
-                            ),
-                            display,
-                        });
+                        total_matches += 1;
+                        if items.len() < MAX_UNFILTERED_ITEMS {
+                            items.push(EditorItem {
+                                id_str: format!("{}:{}", fname, k),
+                                val1: v,
+                                val2: format!(
+                                    "Slot: {} ({}){} | Base ID: {}",
+                                    l_id, lang_tag, camp_str, b_id
+                                ),
+                                display,
+                            });
+                        }
                     }
                 }
             }
         }
     }
+
+    if total_matches > MAX_UNFILTERED_ITEMS {
+        items.push(EditorItem {
+            id_str: String::new(),
+            val1: String::new(),
+            val2: format!(
+                "Displaying first {} of {} total entries.",
+                MAX_UNFILTERED_ITEMS, total_matches
+            ),
+            display: format!(
+                "--- [Showing first {} of {} strings. Refine search filter to narrow results] ---",
+                MAX_UNFILTERED_ITEMS, total_matches
+            ),
+        });
+    }
+
     items
 }
 
@@ -325,19 +353,13 @@ pub fn save_editor_item(
     val1: &str,
     val2: &str,
 ) -> io::Result<()> {
-    if category.contains("0x07DC")
-        || category.contains("0x07E2")
-        || category.contains("0x07DF")
-        || category.contains("0x07E8")
-        || category.contains("0x07F8")
-    {
-        return save_sf1_item(cff_dir, category, index, id_str, val1, val2);
-    }
     if category.contains("0x2335") || category.contains("0x234E") || category.contains("0x2330") {
         return save_sf2_item(cff_dir, category, index, val1);
     }
+    if category != "Localized Strings" {
+        return save_sf1_item(cff_dir, category, index, id_str, val1, val2);
+    }
 
-    // Localized Strings save
     let parts: Vec<&str> = id_str.splitn(2, ':').collect();
     if parts.len() == 2 {
         let fname = format!("{}.json", parts[0]);
@@ -349,8 +371,8 @@ pub fn save_editor_item(
                 serde_json::from_str(&fs::read_to_string(&json_path)?)
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
             map.insert(key.to_string(), val1.to_string());
-            let f = File::create(&json_path)?;
-            serde_json::to_writer_pretty(f, &map)?;
+            let encoded = serde_json::to_vec_pretty(&map)?;
+            crate::tools::atomic_write(&json_path, &encoded)?;
         }
 
         if key.starts_with("f566_") {
@@ -374,7 +396,7 @@ pub fn save_editor_item(
                         let mut padded = vec![0u8; 512];
                         padded[..text_bytes.len()].copy_from_slice(&text_bytes);
                         b[offset + 54..offset + 566].copy_from_slice(&padded);
-                        File::create(&chunk_dat_path)?.write_all(&b)?;
+                        crate::tools::atomic_write(&chunk_dat_path, &b)?;
                     }
                 }
             }
@@ -416,7 +438,7 @@ pub fn add_editor_item(cff_dir: &Path, category: &str) -> io::Result<String> {
             record[3..3 + len].copy_from_slice(&default_mesh[..len]);
 
             bytes.extend_from_slice(&record);
-            File::create(chunk_path)?.write_all(&bytes)?;
+            crate::tools::atomic_write(&chunk_path, &bytes)?;
             return Ok(new_id.to_string());
         }
     } else if category.contains("0x07E2") {
@@ -442,7 +464,7 @@ pub fn add_editor_item(cff_dir: &Path, category: &str) -> io::Result<String> {
             record[0..2].copy_from_slice(&new_id.to_le_bytes());
 
             bytes.extend_from_slice(&record);
-            File::create(chunk_path)?.write_all(&bytes)?;
+            crate::tools::atomic_write(&chunk_path, &bytes)?;
             return Ok(new_id.to_string());
         }
     } else {
@@ -488,7 +510,7 @@ pub fn add_editor_item(cff_dir: &Path, category: &str) -> io::Result<String> {
             record[54..54 + len].copy_from_slice(&text_bytes[..len]);
 
             bytes.extend_from_slice(&record);
-            File::create(&chunk_path)?.write_all(&bytes)?;
+            crate::tools::atomic_write(&chunk_path, &bytes)?;
 
             let stem = chunk_file.trim_end_matches(".dat");
             let json_dir = cff_dir.join("texts_json");
@@ -503,7 +525,8 @@ pub fn add_editor_item(cff_dir: &Path, category: &str) -> io::Result<String> {
 
             let new_key = format!("f566_{:08}_{}", new_offset, new_str_id);
             map.insert(new_key.clone(), default_text.to_string());
-            serde_json::to_writer_pretty(File::create(&json_path)?, &map)?;
+            let encoded = serde_json::to_vec_pretty(&map)?;
+            crate::tools::atomic_write(&json_path, &encoded)?;
 
             return Ok(format!("{}_strings:{}", stem, new_key));
         }
@@ -542,7 +565,7 @@ pub fn duplicate_editor_item(
                 cloned[0..2].copy_from_slice(&new_id.to_le_bytes());
 
                 bytes.extend_from_slice(&cloned);
-                File::create(chunk_path)?.write_all(&bytes)?;
+                crate::tools::atomic_write(&chunk_path, &bytes)?;
                 return Ok(new_id.to_string());
             }
         }
@@ -566,7 +589,7 @@ pub fn duplicate_editor_item(
                 cloned[0..2].copy_from_slice(&new_id.to_le_bytes());
 
                 bytes.extend_from_slice(&cloned);
-                File::create(chunk_path)?.write_all(&bytes)?;
+                crate::tools::atomic_write(&chunk_path, &bytes)?;
                 return Ok(new_id.to_string());
             }
         }
@@ -610,7 +633,7 @@ pub fn duplicate_editor_item(
                             let new_offset = b.len();
 
                             b.extend_from_slice(&cloned_block);
-                            File::create(&chunk_dat_path)?.write_all(&b)?;
+                            crate::tools::atomic_write(&chunk_dat_path, &b)?;
 
                             let mut map: BTreeMap<String, String> = if json_path.exists() {
                                 serde_json::from_str(&fs::read_to_string(&json_path)?)
@@ -622,7 +645,8 @@ pub fn duplicate_editor_item(
                             let original_val = map.get(key).cloned().unwrap_or_default();
                             let new_key = format!("f566_{:08}_{}", new_offset, new_str_id);
                             map.insert(new_key.clone(), original_val);
-                            serde_json::to_writer_pretty(File::create(&json_path)?, &map)?;
+                            let encoded = serde_json::to_vec_pretty(&map)?;
+                            crate::tools::atomic_write(&json_path, &encoded)?;
 
                             return Ok(format!("{}:{}", parts[0], new_key));
                         }
@@ -652,7 +676,7 @@ pub fn delete_editor_item(
             let offset = index * 69;
             if offset + 69 <= bytes.len() {
                 bytes.drain(offset..offset + 69);
-                File::create(chunk_path)?.write_all(&bytes)?;
+                crate::tools::atomic_write(&chunk_path, &bytes)?;
                 return Ok(());
             }
         }
@@ -663,7 +687,7 @@ pub fn delete_editor_item(
             let offset = index * 4;
             if offset + 4 <= bytes.len() {
                 bytes.drain(offset..offset + 4);
-                File::create(chunk_path)?.write_all(&bytes)?;
+                crate::tools::atomic_write(&chunk_path, &bytes)?;
                 return Ok(());
             }
         }
@@ -683,7 +707,7 @@ pub fn delete_editor_item(
                         let mut b = fs::read(&chunk_dat_path)?;
                         if target_offset + 566 <= b.len() {
                             b.drain(target_offset..target_offset + 566);
-                            File::create(&chunk_dat_path)?.write_all(&b)?;
+                            crate::tools::atomic_write(&chunk_dat_path, &b)?;
                         }
                     }
 
@@ -710,7 +734,8 @@ pub fn delete_editor_item(
                             }
                             updated_map.insert(k, v);
                         }
-                        serde_json::to_writer_pretty(File::create(&json_path)?, &updated_map)?;
+                        let encoded = serde_json::to_vec_pretty(&updated_map)?;
+                        crate::tools::atomic_write(&json_path, &encoded)?;
                     }
                     return Ok(());
                 }

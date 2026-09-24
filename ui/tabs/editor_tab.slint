@@ -25,10 +25,18 @@ export component EditorTab inherits HorizontalLayout {
     in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
     in-out property <[string]> available_categories: [
         "2D Gfx Items (0x07DC)",
-        "Spells Mapping (0x07E2)",
+        "Spells Master (0x07D2)",
+        "Items Master (0x07D3)",
+        "Item Modifiers (0x07D4)",
+        "Unit Stats (0x07D5)",
         "Weapon Stats (0x07DF)",
+        "Spells Mapping (0x07E2)",
+        "Races (0x07E6)",
         "Units Master (0x07E8)",
+        "Buildings Master (0x07ED)",
         "Unit Loot Tables (0x07F8)",
+        "Level Progression (0x0800)",
+        "Objects Master (0x0802)",
         "Localized Strings"
     ];
     in-out property <string> editor_lang_filter: "All Languages";
@@ -711,7 +719,16 @@ export component EditorTab inherits HorizontalLayout {
                 title: (root.editor_active_category == "2D Gfx Items (0x07DC)" || root.editor_active_category == "Visual Meshes (0x2335)" || root.editor_active_category == "Abilities (0x234E)") ? "Mesh / Icon Asset:" :
                     (root.editor_active_category == "Weapon Stats (0x07DF)") ? "Damage (Min-Max):" :
                     (root.editor_active_category == "Units Master (0x07E8)") ? "XP Gain:" :
-                    (root.editor_active_category == "Unit Loot Tables (0x07F8)") ? "Loot Items (1, 2, 3):" : "Target / Scroll ID:";
+                    (root.editor_active_category == "Unit Loot Tables (0x07F8)") ? "Loot Items (1, 2, 3):" :
+                    (root.editor_active_category == "Spells Master (0x07D2)") ? "Mana & Power:" :
+                    (root.editor_active_category == "Items Master (0x07D3)") ? "Buy & Sell Prices:" :
+                    (root.editor_active_category == "Item Modifiers (0x07D4)") ? "Attributes & Armor:" :
+                    (root.editor_active_category == "Unit Stats (0x07D5)") ? "Level & Race:" :
+                    (root.editor_active_category == "Races (0x07E6)") ? "Aggro & Morale:" :
+                    (root.editor_active_category == "Buildings Master (0x07ED)") ? "Health & Slots:" :
+                    (root.editor_active_category == "Level Progression (0x0800)") ? "XP Required:" :
+                    (root.editor_active_category == "Objects Master (0x0802)") ? "Resource Amount:" :
+                    "Target / Scroll ID:";
                 label-width: 140px;
                 LineEdit {
                     text <=> root.editor_field_val1;

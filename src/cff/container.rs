@@ -1,3 +1,5 @@
+// src/cff/container.rs
+
 use super::text::{ChunkFormat, detect_format, export_text, import_text};
 use crate::UiLogger;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -264,6 +266,16 @@ pub fn pack_all(
     let manifest_data = fs::read_to_string(manifest_path)?;
     let manifest: Manifest = serde_json::from_str(&manifest_data)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+    if manifest.chunks.len() > 8192 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "Engine limit exceeded: CFF contains {} chunks (max allowed: 8192)!",
+                manifest.chunks.len()
+            ),
+        ));
+    }
 
     let fmt_type = manifest.format.clone();
     let json_dir = in_dir.join("texts_json");

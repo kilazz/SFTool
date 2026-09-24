@@ -7,8 +7,11 @@ pub mod formulas;
 pub mod localization;
 pub mod references;
 pub mod sf1;
+pub mod sf1_schema;
 pub mod sf2;
 pub mod text;
+pub mod tracer;
+pub mod validation;
 
 pub use container::*;
 pub use diff::*;

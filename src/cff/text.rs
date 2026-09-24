@@ -1,5 +1,5 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use encoding_rs::{WINDOWS_1251, WINDOWS_1252};
+use encoding_rs::{WINDOWS_1250, WINDOWS_1251, WINDOWS_1252};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -43,6 +43,10 @@ pub fn decode_by_lang(bytes: &[u8], lang_id: u16) -> String {
             let (cow, _, _) = WINDOWS_1251.decode(bytes);
             cow.into_owned()
         }
+        6 | 7 => {
+            let (cow, _, _) = WINDOWS_1250.decode(bytes);
+            cow.into_owned()
+        }
         0..=4 => {
             let (cow, _, _) = WINDOWS_1252.decode(bytes);
             cow.into_owned()
@@ -52,49 +56,113 @@ pub fn decode_by_lang(bytes: &[u8], lang_id: u16) -> String {
 }
 
 pub fn encode_by_lang(text: &str, lang_id: u16) -> Vec<u8> {
-    let has_cyrillic = text.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c));
-    if has_cyrillic || lang_id == 5 {
-        let (cow, _, _) = WINDOWS_1251.encode(text);
-        cow.into_owned()
-    } else {
-        let (cow, _, had_errors) = WINDOWS_1252.encode(text);
-        if had_errors {
-            let (cow_cyrillic, _, _) = WINDOWS_1251.encode(text);
-            cow_cyrillic.into_owned()
-        } else {
-            cow.into_owned()
+    match lang_id {
+        5 => {
+            let (cow, _, _) = WINDOWS_1251.encode(text);
+            return cow.into_owned();
         }
+        6 | 7 => {
+            let (cow, _, _) = WINDOWS_1250.encode(text);
+            return cow.into_owned();
+        }
+        0..=4 => {
+            let (cow, _, had_errors) = WINDOWS_1252.encode(text);
+            if !had_errors {
+                return cow.into_owned();
+            }
+        }
+        _ => {}
+    }
+
+    let has_cyrillic = text.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c));
+    if has_cyrillic {
+        let (cow, _, _) = WINDOWS_1251.encode(text);
+        return cow.into_owned();
+    }
+
+    let has_central_euro = text.chars().any(|c| {
+        matches!(
+            c,
+            'ą' | 'ć'
+                | 'ę'
+                | 'ł'
+                | 'ń'
+                | 'ó'
+                | 'ś'
+                | 'ź'
+                | 'ż'
+                | 'Ą'
+                | 'Ć'
+                | 'Ę'
+                | 'Ł'
+                | 'Ń'
+                | 'Ó'
+                | 'Ś'
+                | 'Ź'
+                | 'Ż'
+                | 'č'
+                | 'ď'
+                | 'ě'
+                | 'ň'
+                | 'ř'
+                | 'š'
+                | 'ť'
+                | 'ž'
+                | 'ů'
+                | 'Č'
+                | 'Ď'
+                | 'Ě'
+                | 'Ň'
+                | 'Ř'
+                | 'Š'
+                | 'Ť'
+                | 'Ž'
+                | 'Ů'
+        )
+    });
+    if has_central_euro {
+        let (cow, _, _) = WINDOWS_1250.encode(text);
+        return cow.into_owned();
+    }
+
+    let (cow, _, had_errors) = WINDOWS_1252.encode(text);
+    if had_errors {
+        let (cow_cyrillic, _, _) = WINDOWS_1251.encode(text);
+        cow_cyrillic.into_owned()
+    } else {
+        cow.into_owned()
     }
 }
 
-/// Robust Windows-1251 vs Windows-1252 heuristic decoder.
-/// Prevents Western European umlauts (ä, ö, ü, ß) from being misidentified as Cyrillic.
+/// Надежный декодер: защищает умлауты (ä, ö, ü, ß) от ошибочного декодирования как CP1251
 pub fn decode_windows(bytes: &[u8]) -> String {
     if let Ok(utf8_str) = std::str::from_utf8(bytes) {
         return utf8_str.to_string();
     }
 
-    let mut max_consecutive_cyrillic = 0;
-    let mut current_consecutive = 0;
-    let mut latin_count = 0;
+    let mut cyrillic_likely_score: i32 = 0;
+    let mut latin_score: i32 = 0;
+    let mut consecutive_high_bytes = 0;
+    let mut max_consecutive_high_bytes = 0;
 
     for &b in bytes {
         if b.is_ascii_alphabetic() {
-            latin_count += 1;
-            current_consecutive = 0;
+            latin_score += 1;
+            consecutive_high_bytes = 0;
         } else if b >= 0xC0 {
-            current_consecutive += 1;
-            if current_consecutive > max_consecutive_cyrillic {
-                max_consecutive_cyrillic = current_consecutive;
+            consecutive_high_bytes += 1;
+            if consecutive_high_bytes > max_consecutive_high_bytes {
+                max_consecutive_high_bytes = consecutive_high_bytes;
             }
+            cyrillic_likely_score += 1;
         } else {
-            current_consecutive = 0;
+            consecutive_high_bytes = 0;
         }
     }
 
-    // Only decode as CP1251 if there are meaningful consecutive Cyrillic character sequences
-    // and Latin text does not dominate the buffer.
-    if max_consecutive_cyrillic >= 3 && latin_count < max_consecutive_cyrillic {
+    // В кириллических словах CP1251 практически каждая буква >= 0xC0.
+    // В немецком/французском CP1252 умлауты окружены ASCII буквами (Latin score преобладает).
+    if max_consecutive_high_bytes >= 4 && cyrillic_likely_score > latin_score {
         let (cow, _, _) = WINDOWS_1251.decode(bytes);
         return cow.into_owned();
     }
@@ -104,19 +172,7 @@ pub fn decode_windows(bytes: &[u8]) -> String {
 }
 
 pub fn encode_windows(text: &str) -> Vec<u8> {
-    let has_cyrillic = text.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c));
-    if has_cyrillic {
-        let (cow, _, _) = WINDOWS_1251.encode(text);
-        cow.into_owned()
-    } else {
-        let (cow, _, had_errors) = WINDOWS_1252.encode(text);
-        if had_errors {
-            let (cow_cyrillic, _, _) = WINDOWS_1251.encode(text);
-            cow_cyrillic.into_owned()
-        } else {
-            cow.into_owned()
-        }
-    }
+    encode_by_lang(text, 1)
 }
 
 pub fn hex_to_bytes(hex: &str) -> Vec<u8> {
@@ -133,7 +189,7 @@ pub fn hex_to_bytes(hex: &str) -> Vec<u8> {
 }
 
 // -----------------------------------------------------------------------------
-// CHUNK FORMAT DETECTION
+// CHUNK FORMAT DETECTION & IMPORT / EXPORT
 // -----------------------------------------------------------------------------
 
 pub fn detect_format(data: &[u8]) -> ChunkFormat {
@@ -160,7 +216,6 @@ pub fn detect_format(data: &[u8]) -> ChunkFormat {
         return ChunkFormat::Binary;
     }
 
-    // Detect Developer Table (Format C)
     let mut is_c = true;
     let mut offset = 4;
     for _ in 0..count {
@@ -198,7 +253,6 @@ pub fn detect_format(data: &[u8]) -> ChunkFormat {
         return ChunkFormat::DeveloperTable;
     }
 
-    // Detect String Table (Format A)
     let mut is_a = true;
     offset = 4;
     for _ in 0..count {
@@ -232,7 +286,6 @@ pub fn detect_format(data: &[u8]) -> ChunkFormat {
         return ChunkFormat::StringTable;
     }
 
-    // Detect Table Based (Format B)
     for e in 0..=32 {
         for n in 1..=10 {
             let mut is_b = true;
@@ -266,10 +319,6 @@ pub fn detect_format(data: &[u8]) -> ChunkFormat {
 
     ChunkFormat::Binary
 }
-
-// -----------------------------------------------------------------------------
-// TEXT EXPORT / IMPORT ENGINE
-// -----------------------------------------------------------------------------
 
 pub fn export_text(data: &[u8], json_path: &Path, format: ChunkFormat) -> io::Result<()> {
     let mut texts: BTreeMap<String, String> = BTreeMap::new();
@@ -453,44 +502,6 @@ pub fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
                 num_strings = n_str.parse::<usize>().unwrap_or(0);
             }
         }
-    } else if let Some(first_key) = texts.keys().next() {
-        if first_key.starts_with("f566_") {
-            is_fixed_566 = true;
-        } else {
-            let parts: Vec<&str> = first_key.splitn(4, '_').collect();
-            if parts.len() == 4
-                && parts[0].parse::<u32>().is_ok()
-                && parts[1].parse::<u32>().is_ok()
-            {
-                if parts[3].starts_with("str") {
-                    is_table_based = true;
-                } else {
-                    is_developer_table = true;
-                }
-            }
-        }
-    }
-
-    if is_table_based && num_strings == 0 {
-        let mut max_idx = 0;
-        for key in texts.keys() {
-            let k_parts: Vec<&str> = key.splitn(4, '_').collect();
-            if k_parts.len() == 4
-                && k_parts[3].starts_with("str")
-                && let Ok(str_idx) = k_parts[3][3..].parse::<usize>()
-            {
-                max_idx = max_idx.max(str_idx + 1);
-            }
-        }
-        num_strings = max_idx;
-    }
-
-    if chunk_path.exists() {
-        let mut bak_path = chunk_path.to_path_buf();
-        bak_path.set_extension("dat.bak");
-        if !bak_path.exists() {
-            let _ = fs::copy(chunk_path, bak_path);
-        }
     }
 
     if is_fixed_566 {
@@ -527,11 +538,11 @@ pub fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
                 orig_data[offset + 54..offset + 566].copy_from_slice(&padded);
             }
         }
-        File::create(chunk_path)?.write_all(&orig_data)?;
+        crate::tools::atomic_write(chunk_path, &orig_data)?;
         return Ok(());
     }
 
-    let mut out = File::create(chunk_path)?;
+    let mut out = Vec::new();
 
     if is_developer_table {
         let mut entries: BTreeMap<u32, (u32, u8, String, String)> = BTreeMap::new();
@@ -540,33 +551,12 @@ pub fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
             let idx = parts
                 .first()
                 .and_then(|s| s.parse::<u32>().ok())
-                .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Missing or invalid index field in key: {}", key),
-                    )
-                })?;
-
+                .unwrap_or(0);
             let id_val = parts
                 .get(1)
                 .and_then(|s| s.parse::<u32>().ok())
-                .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Missing or invalid ID field in key: {}", key),
-                    )
-                })?;
-
-            let flag = parts
-                .get(2)
-                .and_then(|s| s.parse::<u8>().ok())
-                .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Missing or invalid flag field in key: {}", key),
-                    )
-                })?;
-
+                .unwrap_or(0);
+            let flag = parts.get(2).and_then(|s| s.parse::<u8>().ok()).unwrap_or(0);
             let dev_key = parts.get(3).unwrap_or(&"").to_string();
             entries.insert(idx, (id_val, flag, val.clone(), dev_key));
         }
@@ -592,55 +582,22 @@ pub fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
             let idx = parts
                 .first()
                 .and_then(|s| s.parse::<u32>().ok())
-                .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Missing or invalid index field in key: {}", key),
-                    )
-                })?;
-
+                .unwrap_or(0);
             let id_val = parts
                 .get(1)
                 .and_then(|s| s.parse::<u32>().ok())
-                .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Missing or invalid ID field in key: {}", key),
-                    )
-                })?;
-
-            let extra_bytes = parts
-                .get(2)
-                .map(|&hex_str| hex_to_bytes(hex_str))
-                .unwrap_or_default();
-
-            let str_idx_str = parts.get(3).ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Missing string index target in key: {}", key),
-                )
-            })?;
-
-            if str_idx_str.len() < 4 || !str_idx_str.starts_with("str") {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Malformed string marker in key: {}", key),
-                ));
+                .unwrap_or(0);
+            let extra_bytes = parts.get(2).map(|&h| hex_to_bytes(h)).unwrap_or_default();
+            let str_idx_str = parts.get(3).cloned().unwrap_or("");
+            if str_idx_str.len() >= 4 && str_idx_str.starts_with("str") {
+                let str_idx = str_idx_str[3..].parse::<usize>().unwrap_or(0);
+                let entry = entries.entry(idx).or_insert_with(|| TableBasedEntry {
+                    id: id_val,
+                    extra_bytes,
+                    strings: BTreeMap::new(),
+                });
+                entry.strings.insert(str_idx, val.clone());
             }
-
-            let str_idx = str_idx_str[3..].parse::<usize>().map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Failed to parse index in table string '{}': {}", key, e),
-                )
-            })?;
-
-            let entry = entries.entry(idx).or_insert_with(|| TableBasedEntry {
-                id: id_val,
-                extra_bytes,
-                strings: BTreeMap::new(),
-            });
-            entry.strings.insert(str_idx, val.clone());
         }
 
         out.write_u32::<LittleEndian>(entries.len() as u32)?;
@@ -651,7 +608,6 @@ pub fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
                 let empty = String::new();
                 let text_val = entry.strings.get(&s).unwrap_or(&empty);
                 let utf16: Vec<u16> = text_val.encode_utf16().collect();
-
                 out.write_u32::<LittleEndian>(utf16.len() as u32)?;
                 for &u in &utf16 {
                     out.write_u16::<LittleEndian>(u)?;
@@ -674,5 +630,5 @@ pub fn import_text(json_path: &Path, chunk_path: &Path) -> io::Result<()> {
         }
     }
 
-    Ok(())
+    crate::tools::atomic_write(chunk_path, &out)
 }

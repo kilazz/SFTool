@@ -1,10 +1,13 @@
 // src/gui/editor.rs
+
 use crate::AppWindow;
 use crate::cff;
 use crate::logger::UiLogger;
 use slint::{ComponentHandle, Image, ModelRc, SharedString, StandardListViewItem, VecModel};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -20,12 +23,96 @@ struct HistoryItem {
     val2_after: String,
 }
 
+struct PreviewTask {
+    generation: u64,
+    dir: PathBuf,
+    asset_src: PathBuf,
+    cat: String,
+    id: String,
+    val1: String,
+}
+
 pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
     let undo_stack = Arc::new(Mutex::new(Vec::<HistoryItem>::new()));
     let redo_stack = Arc::new(Mutex::new(Vec::<HistoryItem>::new()));
     let items_cache = Arc::new(Mutex::new(Vec::<cff::EditorItem>::new()));
 
-    // Load data
+    // Dedicated debounced worker channel for texture and asset previews
+    let (preview_tx, preview_rx) = mpsc::channel::<PreviewTask>();
+    let preview_generation = Arc::new(AtomicU64::new(0));
+
+    let preview_gen_worker = preview_generation.clone();
+    let ui_w_worker = ui.as_weak();
+
+    // Single long-lived worker thread to process texture decoding
+    thread::spawn(move || {
+        while let Ok(mut task) = preview_rx.recv() {
+            // Coalesce rapid requests: if more tasks are queued, skip directly to the latest
+            while let Ok(newer) = preview_rx.try_recv() {
+                task = newer;
+            }
+
+            // Discard task if already superseded by a newer selection
+            if task.generation != preview_gen_worker.load(Ordering::SeqCst) {
+                continue;
+            }
+
+            if task.cat.contains("0x07DC")
+                || task.cat.contains("0x2335")
+                || task.cat.contains("0x234E")
+            {
+                let res = cff::find_and_load_texture(&task.dir, &task.asset_src, &task.val1);
+                if task.generation == preview_gen_worker.load(Ordering::SeqCst) {
+                    let ui_w = ui_w_worker.clone();
+                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                        if let Some((rgba, fname)) = res {
+                            ui.set_preview_icon1(crate::dds::rgba_to_slint(rgba));
+                            ui.set_asset_status_text(format!("Loaded: {}", fname).into());
+                        } else {
+                            ui.set_preview_icon1(Image::default());
+                            ui.set_asset_status_text("Texture not found.".into());
+                        }
+                    });
+                }
+            } else if task.cat.contains("0x07E2") {
+                let spell_id = task.id.parse::<u16>().unwrap_or(0);
+                let scroll_id = task.val1.parse::<u16>().unwrap_or(0);
+                let details = cff::resolve_spell_cross_reference(&task.dir, spell_id, scroll_id);
+
+                let spell_rgba =
+                    cff::find_and_load_texture(&task.dir, &task.asset_src, &details.spell_mesh)
+                        .map(|(rgba, _)| rgba);
+                let scroll_rgba =
+                    cff::find_and_load_texture(&task.dir, &task.asset_src, &details.scroll_mesh)
+                        .map(|(rgba, _)| rgba);
+
+                if task.generation == preview_gen_worker.load(Ordering::SeqCst) {
+                    let ui_w = ui_w_worker.clone();
+                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                        let spell_img = spell_rgba
+                            .map(crate::dds::rgba_to_slint)
+                            .unwrap_or_default();
+                        let scroll_img = scroll_rgba
+                            .map(crate::dds::rgba_to_slint)
+                            .unwrap_or_default();
+                        ui.set_preview_icon1(spell_img);
+                        ui.set_preview_icon2(scroll_img);
+                        ui.set_spell_name_disp(details.spell_name.into());
+                        ui.set_scroll_name_disp(details.scroll_name.into());
+                    });
+                }
+            } else if task.generation == preview_gen_worker.load(Ordering::SeqCst) {
+                let ui_w = ui_w_worker.clone();
+                let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                    ui.set_preview_icon1(Image::default());
+                    ui.set_preview_icon2(Image::default());
+                    ui.set_asset_status_text("No visual asset associated.".into());
+                });
+            }
+        }
+    });
+
+    // 1. Load data
     let ui_weak = ui.as_weak();
     let cache_load = items_cache.clone();
     ui.on_load_editor_data(move |cff_dir, cat, flt, lang| {
@@ -42,6 +129,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
             let languages = cff::get_available_languages_display(&dir);
             *cache.lock().unwrap() = items.clone();
 
+            let count = items.len();
             let list_items: Vec<_> = items
                 .into_iter()
                 .map(|it| StandardListViewItem::from(SharedString::from(it.display)))
@@ -53,80 +141,55 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
                 ui.set_available_categories(ModelRc::from(Rc::new(VecModel::from(cat_items))));
                 ui.set_available_languages(ModelRc::from(Rc::new(VecModel::from(lang_items))));
                 ui.set_editor_entries(ModelRc::from(Rc::new(VecModel::from(list_items))));
-                ui.set_status_msg("Loaded balance records.".into());
+                ui.set_status_msg(format!("Loaded {} records into editor.", count).into());
             });
         });
     });
 
-    // Select entry
+    // 2. Select entry (Debounced via generation counter and worker channel)
     let ui_weak_sel = ui.as_weak();
     let cache_sel = items_cache.clone();
+    let p_gen_sel = preview_generation.clone();
+    let p_tx_sel = preview_tx.clone();
+
     ui.on_select_editor_entry(move |idx| {
         let cache = cache_sel.lock().unwrap();
         if let Some(item) = cache.get(idx as usize) {
+            // Guard against selecting the pagination/informational footer banner
+            if item.id_str.is_empty() {
+                return;
+            }
+
             let id = item.id_str.clone();
             let val1 = item.val1.clone();
             let val2 = item.val2.clone();
-            let ui_w = ui_weak_sel.clone();
+            drop(cache);
+
+            let task_gen = p_gen_sel.fetch_add(1, Ordering::SeqCst) + 1;
+            let tx = p_tx_sel.clone();
 
             let _ = ui_weak_sel.upgrade_in_event_loop(move |ui| {
                 ui.set_editor_field_id(id.clone().into());
                 ui.set_editor_field_val1(val1.clone().into());
                 ui.set_editor_field_val2(val2.into());
 
-                let cat = ui.get_editor_active_category();
+                let cat = ui.get_editor_active_category().to_string();
                 let dir = PathBuf::from(ui.get_editor_cff_dir().as_str());
                 let asset_src = PathBuf::from(ui.get_editor_asset_source().as_str());
 
-                thread::spawn(move || {
-                    if cat.contains("0x07DC") || cat.contains("0x2335") || cat.contains("0x234E") {
-                        if let Some((rgba, fname)) =
-                            cff::find_and_load_texture(&dir, &asset_src, &val1)
-                        {
-                            let status = format!("Loaded: {}", fname);
-                            let _ = ui_w.upgrade_in_event_loop(move |ui| {
-                                ui.set_preview_icon1(crate::dds::rgba_to_slint(rgba));
-                                ui.set_asset_status_text(status.into());
-                            });
-                        } else {
-                            let _ = ui_w.upgrade_in_event_loop(move |ui| {
-                                ui.set_preview_icon1(Image::default());
-                                ui.set_asset_status_text("Texture not found.".into());
-                            });
-                        }
-                    } else if cat.contains("0x07E2") {
-                        let spell_id = id.parse::<u16>().unwrap_or(0);
-                        let scroll_id = val1.parse::<u16>().unwrap_or(0);
-                        let details = cff::resolve_spell_cross_reference(&dir, spell_id, scroll_id);
-
-                        // Сохраняем RgbaImage (потокобезопасен), а в slint::Image конвертируем внутри UI-потока
-                        let spell_rgba =
-                            cff::find_and_load_texture(&dir, &asset_src, &details.spell_mesh)
-                                .map(|(rgba, _)| rgba);
-                        let scroll_rgba =
-                            cff::find_and_load_texture(&dir, &asset_src, &details.scroll_mesh)
-                                .map(|(rgba, _)| rgba);
-
-                        let _ = ui_w.upgrade_in_event_loop(move |ui| {
-                            let spell_img = spell_rgba
-                                .map(crate::dds::rgba_to_slint)
-                                .unwrap_or_default();
-                            let scroll_img = scroll_rgba
-                                .map(crate::dds::rgba_to_slint)
-                                .unwrap_or_default();
-
-                            ui.set_preview_icon1(spell_img);
-                            ui.set_preview_icon2(scroll_img);
-                            ui.set_spell_name_disp(details.spell_name.into());
-                            ui.set_scroll_name_disp(details.scroll_name.into());
-                        });
-                    }
+                let _ = tx.send(PreviewTask {
+                    generation: task_gen,
+                    dir,
+                    asset_src,
+                    cat,
+                    id,
+                    val1,
                 });
             });
         }
     });
 
-    // Save entry
+    // 3. Save entry
     let u_save = undo_stack.clone();
     let r_save = redo_stack.clone();
     let cache_save = items_cache;
@@ -180,7 +243,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         });
     });
 
-    // Undo / Redo
+    // 4. Undo
     let u_act = undo_stack.clone();
     let r_act = redo_stack.clone();
     let ui_w_undo = ui.as_weak();
@@ -215,6 +278,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         }
     });
 
+    // 5. Redo
     let u_redo = undo_stack;
     let r_redo = redo_stack;
     let ui_w_redo = ui.as_weak();
@@ -249,7 +313,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         }
     });
 
-    // Record Operations: Add, Duplicate, Delete
+    // 6. Record Operations: Add, Duplicate, Delete
     let log_add = logger.clone();
     let ui_w_add = ui.as_weak();
     ui.on_add_editor_entry(move |cff_dir, cat| {
@@ -310,7 +374,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         );
     });
 
-    // Language Slot Tools
+    // 7. Multi-Language Slot Tools
     let log_exp = logger.clone();
     ui.on_export_single_language(move |cff_dir, lang, out_json| {
         let dir = PathBuf::from(cff_dir.as_str());
@@ -333,7 +397,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         });
     });
 
-    // Language slot wizard callbacks
+    // 8. Language Slot Clone Wizard
     let log_wizard = logger;
     let ui_w_wizard = ui.as_weak();
     ui.on_execute_clone_language(move |cff_dir, src, dst, tag, out_json| {

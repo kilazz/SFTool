@@ -1,9 +1,12 @@
 // src/cli.rs
+
 use crate::cff;
 use crate::dds;
 use crate::logger::make_cli_logger;
 use crate::lua;
 use crate::pak;
+use crate::sav;
+use crate::terrain;
 use crate::tools;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -30,12 +33,15 @@ PAK & VFS Commands:
   batch_pack_pak <root_folder> [fmt: sf1|sf2] [comp: 0-9]
       Batch pack all '*_extracted' directories back into .pak files.
 
-CFF Database Commands:
+CFF Database & SaveGame Commands:
   unpack_cff <input_cff> <out_dir>
       Unpack CFF container into binary chunks and export texts to JSON.
 
   pack_cff <in_dir> <out_cff> [compression_level: 0-9, default: 6]
       Import texts from JSON into chunks and compile into a CFF container.
+
+  unpack_sav <input.sav> <out_dir>
+      Inspect and extract all chunks and nested containers from a savegame (.sav).
 
   create_diff <base_cff_dir> <mod_cff_dir> <out_patch.json>
       Generate a non-destructive mod diff patch between base and modified databases.
@@ -43,11 +49,17 @@ CFF Database Commands:
   apply_diff <target_cff_dir> <patch.json>
       Apply and merge a mod diff patch into a target working database directory.
 
+  validate_cff <cff_dir>
+      Audit entire database and report all broken relational links / missing IDs.
+
   clone_slot <cff_dir> <src_slot: 0-4> <dst_slot: 5>
       Clone an existing language slot into a new slot (e.g. Russian slot 5).
 
   replace_slot <cff_dir> <target_slot: 0-5> <translation.json>
       Replace all phrases of a language slot with texts from a JSON file.
+
+  trace_id <cff_dir> <category_id> <target_id>
+      Resolve the exact file record index, print table group & trace incoming references.
 
   find_refs <cff_dir> <category_id> <target_id>
       Trace all cross-category relational foreign key references across all database tables.
@@ -68,10 +80,20 @@ Diagnostic & Balance Tools:
   calc_hp <stamina> <wisdom> [hp_factor: 100] [mana_factor: 100]
       Computes effective creature Health and Mana based on stat curves.
 
-  decode_flags <race|item|ai|cultivation> <value>
-      Translates binary bitmasks into human-readable tags.
+  decode_flags <race|item|ai|cultivation|clan|relation|slot> <value>
+      Translates binary bitmasks, clans, relations, or equipment slots into human-readable tags.
 
-SpellForce 1 Visual Bindings (script/sql_*.lua):
+Terrain & Map Generation:
+  generate_terrain <width> <height> <out.png> [base_z: default 2000]
+      Procedurally generate an erosion heightmap using parallel Rayon algorithms.
+
+SpellForce 1 Visual Bindings & Co-op Spawns:
+  dump_coop_spawns <GdsRtsCoopSpawnGroups.lua> <out.json>
+      Export RTS co-op spawn groups, waves, and schedules into editable JSON.
+
+  compile_coop_spawns <in.json> <GdsRtsCoopSpawnGroups.lua>
+      Compile JSON back into valid GdsRtsCoopSpawnGroups.lua.
+
   dump_sql_items <sql_item.lua> <out.json>
       Dumps sql_item.lua into clean editable JSON.
 
@@ -171,6 +193,170 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             let _ = handle.join();
         }
 
+        "unpack_sav" => {
+            if args.len() < 4 {
+                eprintln!("Usage: SFTool unpack_sav <input.sav> <out_dir>");
+                return Ok(());
+            }
+            let (logger, handle) = make_cli_logger();
+            sav::inspect_and_unpack_sav(Path::new(&args[2]), Path::new(&args[3]), &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+
+        "dump_coop_spawns" => {
+            if args.len() < 4 {
+                eprintln!("Usage: SFTool dump_coop_spawns <GdsRtsCoopSpawnGroups.lua> <out.json>");
+                return Ok(());
+            }
+            let map = lua::coop_spawns::parse_coop_spawns(Path::new(&args[2]))?;
+            let f = fs::File::create(Path::new(&args[3]))?;
+            serde_json::to_writer_pretty(f, &map)?;
+            println!(
+                "[+] Exported {} coop spawn groups to {:?}",
+                map.len(),
+                args[3]
+            );
+        }
+
+        "compile_coop_spawns" => {
+            if args.len() < 4 {
+                eprintln!(
+                    "Usage: SFTool compile_coop_spawns <in.json> <GdsRtsCoopSpawnGroups.lua>"
+                );
+                return Ok(());
+            }
+            let content = fs::read_to_string(Path::new(&args[2]))?;
+            let map: std::collections::BTreeMap<u32, lua::coop_spawns::CoopSpawnGroup> =
+                serde_json::from_str(&content)?;
+            lua::coop_spawns::save_coop_spawns(Path::new(&args[3]), &map)?;
+            println!(
+                "[+] Compiled {} coop spawn groups into {:?}",
+                map.len(),
+                args[3]
+            );
+        }
+
+        "generate_terrain" => {
+            if args.len() < 5 {
+                eprintln!("Usage: SFTool generate_terrain <width> <height> <out.png> [base_z]");
+                return Ok(());
+            }
+            let width = args[2].parse::<usize>().unwrap_or(256);
+            let height = args[3].parse::<usize>().unwrap_or(256);
+            let base_z = args
+                .get(5)
+                .and_then(|s| s.parse::<u16>().ok())
+                .unwrap_or(2000);
+
+            let cfg = terrain::generator::MapGenConfig {
+                width,
+                height,
+                base_z,
+                ..Default::default()
+            };
+
+            println!(
+                "[*] Generating {}x{} heightmap with cellular erosion...",
+                width, height
+            );
+            let hdata = terrain::generator::TerrainGenerator::generate_heightmap(&cfg);
+            terrain::generator::TerrainGenerator::export_png_16bit(
+                &hdata,
+                width as u32,
+                height as u32,
+                Path::new(&args[4]),
+            )?;
+            println!("[+] Heightmap exported successfully to {:?}", args[4]);
+        }
+
+        "trace_id" => {
+            if args.len() < 5 {
+                eprintln!("Usage: SFTool trace_id <cff_dir> <category_id> <target_id>");
+                return Ok(());
+            }
+            let cat_id = args[3].parse::<u32>().unwrap_or(2003);
+            let target_id = args[4].parse::<u32>().unwrap_or(0);
+            let cff_dir = Path::new(&args[2]);
+
+            let mut tracer = cff::tracer::TracerEngine::default();
+            let effective_cat = tracer.get_redirect(cat_id);
+            if effective_cat != cat_id {
+                println!(
+                    "[*] Category 0x{:04X} redirected to relational root 0x{:04X}",
+                    cat_id, effective_cat
+                );
+            }
+
+            if let Some(group) = tracer.get_table_group(cat_id) {
+                let grp_str = group
+                    .iter()
+                    .map(|id| format!("0x{:04X}", id))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                println!("[*] Relational Table Group: [{}]", grp_str);
+            }
+
+            if let Some(rec_idx) =
+                cff::tracer::TracerEngine::resolve_entity_index(cff_dir, cat_id, target_id)
+            {
+                tracer.push_step(cff::tracer::TracePoint {
+                    category_id: cat_id,
+                    entity_id: target_id,
+                    record_index: rec_idx,
+                });
+                if let Some(curr) = tracer.current() {
+                    println!(
+                        "[+] Resolved Entity ID {} in Category 0x{:04X} -> Record Index #{}",
+                        curr.entity_id, curr.category_id, curr.record_index
+                    );
+                }
+            } else {
+                println!(
+                    "[-] Entity ID {} not found in Category 0x{:04X}",
+                    target_id, cat_id
+                );
+            }
+
+            let incoming = tracer.find_references(cff_dir, cat_id, target_id);
+            if !incoming.is_empty() {
+                println!(
+                    "[+] Incoming Foreign Key References ({} found):",
+                    incoming.len()
+                );
+                for r in &incoming {
+                    println!(
+                        "  -> [{}] Record #{} (Field: {})",
+                        r.category_name, r.record_index, r.field_name
+                    );
+                }
+
+                if let Some(first_ref) = incoming.first() {
+                    tracer.push_step(cff::tracer::TracePoint {
+                        category_id: first_ref.category_id,
+                        entity_id: first_ref.target_id,
+                        record_index: first_ref.record_index,
+                    });
+                    if tracer.can_go_back()
+                        && let Some(prev) = tracer.go_back()
+                    {
+                        println!(
+                            "  [*] Relational Trail: navigated back to Category 0x{:04X} (Record #{})",
+                            prev.category_id, prev.record_index
+                        );
+                    }
+                    if tracer.can_go_forward()
+                        && let Some(next) = tracer.go_forward()
+                    {
+                        println!(
+                            "  [*] Relational Trail: navigated forward to Category 0x{:04X} (Record #{})",
+                            next.category_id, next.record_index
+                        );
+                    }
+                }
+            }
+        }
+
         "find_refs" => {
             if args.len() < 5 {
                 eprintln!("Usage: SFTool find_refs <cff_dir> <category_id> <target_id>");
@@ -211,7 +397,7 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         }
 
         "calc_xp" => {
-            if args.len() < 5 {
+            if args.len() < 4 {
                 eprintln!("Usage: SFTool calc_xp <xp_gain> <xp_falloff> [kills]");
                 return Ok(());
             }
@@ -266,7 +452,9 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
         "decode_flags" => {
             if args.len() < 4 {
-                eprintln!("Usage: SFTool decode_flags <race|item|ai|cultivation> <value>");
+                eprintln!(
+                    "Usage: SFTool decode_flags <race|item|ai|cultivation|clan|relation|slot> <value>"
+                );
                 return Ok(());
             }
             let val = args[3].parse::<u16>().unwrap_or(0);
@@ -291,8 +479,25 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     val as u8,
                     cff::formulas::decode_cultivation_flags(val as u8)
                 ),
+                "clan" => println!(
+                    "[+] Faction Clan #{} [Diplomacy]: {}",
+                    val as u8,
+                    cff::sf1_schema::get_clan_name(val as u8)
+                ),
+                "relation" => println!(
+                    "[+] Diplomacy Relation ({}): {}",
+                    val as u8,
+                    cff::sf1_schema::decode_diplomacy_relation(val as u8)
+                ),
+                "slot" => println!(
+                    "[+] Unit Equipment Slot #{}: {}",
+                    val as u8,
+                    cff::sf1_schema::get_equipment_slot_name(val as u8)
+                ),
                 _ => {
-                    eprintln!("[!] Unknown flag type. Use 'race', 'item', 'ai', or 'cultivation'.")
+                    eprintln!(
+                        "[!] Unknown flag type. Use 'race', 'item', 'ai', 'cultivation', 'clan', 'relation', or 'slot'."
+                    )
                 }
             }
         }
@@ -475,6 +680,30 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             cff::apply_patch(Path::new(&args[2]), Path::new(&args[3]), &logger)?;
             drop(logger);
             let _ = handle.join();
+        }
+
+        "validate_cff" => {
+            if args.len() < 3 {
+                eprintln!("Usage: SFTool validate_cff <cff_dir>");
+                return Ok(());
+            }
+            let (logger, handle) = make_cli_logger();
+            let report = cff::validation::validate_cff_integrity(Path::new(&args[2]), &logger)?;
+            drop(logger);
+            let _ = handle.join();
+
+            if report.broken_references.is_empty() {
+                println!(
+                    "[+] Database integrity verified: {} tables and {} foreign keys checked. No broken links found.",
+                    report.total_tables_checked, report.total_foreign_keys_checked
+                );
+            } else {
+                println!(
+                    "[-] Database integrity check finished: found {} broken reference(s) across {} tables.",
+                    report.broken_references.len(),
+                    report.total_tables_checked
+                );
+            }
         }
 
         "clone_slot" => {

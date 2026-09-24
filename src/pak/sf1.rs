@@ -1,6 +1,7 @@
 use crate::UiLogger;
 use crate::cff::{decode_windows, encode_windows};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
@@ -132,7 +133,7 @@ pub fn unpack_sf1(f: &mut File, out_dir: &Path, logger: &UiLogger) -> io::Result
 }
 
 pub fn pack_sf1(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Result<()> {
-    logger.log("[*] Compiling SF1 archive with in-engine VFS ordering...");
+    logger.log("[*] Compiling SF1 archive with in-engine VFS ordering & content deduplication...");
 
     let mut all_items = Vec::new();
     for entry in WalkDir::new(src_dir).into_iter().filter_map(|e| e.ok()) {
@@ -257,6 +258,11 @@ pub fn pack_sf1(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Resul
     let mut file_table = Vec::with_capacity(file_entries.len() * 16);
     let mut current_offset = 0u32;
 
+    // Реестр дедупликации: (размер, SHA-256) -> offset в секции данных
+    let mut seen_payloads: HashMap<(u32, [u8; 32]), u32> = HashMap::new();
+    let mut dedup_count = 0usize;
+    let mut saved_bytes = 0u64;
+
     for (i, entry) in file_entries.iter().enumerate() {
         if i % 100 == 0 || i == num_files - 1 {
             logger.log(&format!(
@@ -267,26 +273,40 @@ pub fn pack_sf1(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Resul
             ));
         }
 
-        let (file_size, padding) = if entry.full_path.exists() {
-            let mut f = File::open(&entry.full_path)?;
-            let size = io::copy(&mut f, &mut out)?;
-            let pad = (4 - (size % 4)) % 4;
-            if pad > 0 {
-                out.write_all(&vec![0; pad as usize])?;
+        let (file_size, file_offset) = if entry.full_path.exists() {
+            let file_bytes = fs::read(&entry.full_path)?;
+            let size = file_bytes.len() as u32;
+
+            let mut hasher = Sha256::new();
+            hasher.update(&file_bytes);
+            let hash: [u8; 32] = hasher.finalize().into();
+
+            if let Some(&existing_offset) = seen_payloads.get(&(size, hash)) {
+                // Переиспользуем смещение уже существующего идентичного блока
+                dedup_count += 1;
+                saved_bytes += size as u64;
+                (size, existing_offset)
+            } else {
+                let offset = current_offset;
+                out.write_all(&file_bytes)?;
+                let pad = (4 - (size % 4)) % 4;
+                if pad > 0 {
+                    out.write_all(&vec![0u8; pad as usize])?;
+                }
+                seen_payloads.insert((size, hash), offset);
+                current_offset += size + pad;
+                (size, offset)
             }
-            (size as u32, pad as u32)
         } else {
             (0, 0)
         };
 
         let mut ft_buf = Cursor::new(vec![0u8; 16]);
         ft_buf.write_u32::<LittleEndian>(file_size)?;
-        ft_buf.write_u32::<LittleEndian>(current_offset)?;
+        ft_buf.write_u32::<LittleEndian>(file_offset)?;
         ft_buf.write_u32::<LittleEndian>(entry.name_off & 0x00FFFFFF)?;
         ft_buf.write_u32::<LittleEndian>(entry.dir_off & 0x00FFFFFF)?;
         file_table.extend(ft_buf.into_inner());
-
-        current_offset += file_size + padding;
     }
 
     let mut total_archive_size = data_start_offset + current_offset;
@@ -322,6 +342,14 @@ pub fn pack_sf1(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Resul
     out.write_all(&header)?;
     out.write_all(&file_table)?;
     out.write_all(&string_table)?;
+
+    if dedup_count > 0 {
+        logger.log(&format!(
+            "[+] Deduplication saved: {} duplicates merged, {:.2} MB saved in archive payload.",
+            dedup_count,
+            saved_bytes as f64 / 1_048_576.0
+        ));
+    }
 
     logger.log(&format!(
         "[+] SF1 Archive packed successfully! File: {:?}, Checksum: 0x{:08X}",

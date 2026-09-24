@@ -1,4 +1,5 @@
 // src/main.rs
+
 slint::include_modules!();
 
 mod cff;
@@ -8,6 +9,8 @@ mod gui;
 mod logger;
 mod lua;
 mod pak;
+pub mod sav;
+pub mod terrain;
 mod tools;
 
 pub use logger::UiLogger;
@@ -15,7 +18,7 @@ pub use logger::UiLogger;
 fn main() -> Result<(), slint::PlatformError> {
     let args: Vec<String> = std::env::args().collect();
 
-    // Если переданы аргументы командной строки — работаем в режиме CLI
+    // Run CLI mode if command-line arguments are provided
     if args.len() > 1 {
         if let Err(e) = cli::handle_cli(&args) {
             eprintln!("[!] CLI Execution Error: {}", e);
@@ -24,6 +27,6 @@ fn main() -> Result<(), slint::PlatformError> {
         return Ok(());
     }
 
-    // Иначе запускаем Slint GUI
+    // Otherwise launch the native Slint GUI
     gui::run_gui()
 }

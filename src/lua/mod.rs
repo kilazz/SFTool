@@ -1,5 +1,6 @@
 // src/lua/mod.rs
 
+pub mod coop_spawns;
 pub mod sf1;
 pub mod sf2;
 pub mod sf2_api;

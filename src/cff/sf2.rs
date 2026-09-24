@@ -259,14 +259,14 @@ pub fn load_sf2_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 let item_id = Cursor::new(&bytes[base..base + 2])
                     .read_u16::<LittleEndian>()
                     .unwrap_or(i as u16);
-                let price = if stride > 276 {
+                let price = if stride >= 0x114 {
                     Cursor::new(&bytes[base + 0x110..base + 0x114])
                         .read_u32::<LittleEndian>()
                         .unwrap_or(0)
                 } else {
                     0
                 };
-                let req_lvl = if stride > 278 {
+                let req_lvl = if stride >= 0x116 {
                     Cursor::new(&bytes[base + 0x114..base + 0x116])
                         .read_u16::<LittleEndian>()
                         .unwrap_or(0)
@@ -274,10 +274,37 @@ pub fn load_sf2_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                     0
                 };
 
-                let clean_mesh = if stride > 0x134 {
+                let clean_mesh = if stride >= 0x134 {
                     extract_clean_asset_path(&bytes[base + 0x118..base + 0x134])
                 } else {
                     extract_clean_asset_path(&bytes[base..base + stride])
+                };
+
+                let extra_info = if stride == 404 {
+                    let min_dmg = Cursor::new(&bytes[base + 0x134..base + 0x136])
+                        .read_u16::<LittleEndian>()
+                        .unwrap_or(0);
+                    let max_dmg = Cursor::new(&bytes[base + 0x136..base + 0x138])
+                        .read_u16::<LittleEndian>()
+                        .unwrap_or(0);
+                    let armor = Cursor::new(&bytes[base + 0x144..base + 0x146])
+                        .read_u16::<LittleEndian>()
+                        .unwrap_or(0);
+                    let str_bonus = Cursor::new(&bytes[base + 0x174..base + 0x176])
+                        .read_i16::<LittleEndian>()
+                        .unwrap_or(0);
+                    let agi_bonus = Cursor::new(&bytes[base + 0x176..base + 0x178])
+                        .read_i16::<LittleEndian>()
+                        .unwrap_or(0);
+                    let int_bonus = Cursor::new(&bytes[base + 0x178..base + 0x17A])
+                        .read_i16::<LittleEndian>()
+                        .unwrap_or(0);
+                    format!(
+                        "Price: {} Gold | Req Lvl: {} | Dmg: {}-{} | Armor: {} | Str/Agi/Int: {}/{}/{}",
+                        price, req_lvl, min_dmg, max_dmg, armor, str_bonus, agi_bonus, int_bonus
+                    )
+                } else {
+                    format!("Price: {} Gold | Req Level: {}", price, req_lvl)
                 };
 
                 let display_mesh = sanitize_display_text(&clean_mesh, 40);
@@ -289,7 +316,7 @@ pub fn load_sf2_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                     items.push(EditorItem {
                         id_str: item_id.to_string(),
                         val1: clean_mesh,
-                        val2: format!("Price: {} Gold | Req Level: {}", price, req_lvl),
+                        val2: extra_info,
                         display,
                     });
                 }
