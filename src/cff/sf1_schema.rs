@@ -19,8 +19,8 @@ pub struct SpellEntry {
     pub spell_line_id: u16,
     pub skill_reqs: [u8; 12],
     pub mana_cost: u16,
-    pub cast_time_ms: u32,
-    pub recast_time_ms: u32,
+    pub cast_time_ms: u16,
+    pub recast_time_ms: u16,
     pub min_range: u16,
     pub max_range: u16,
     pub cast_target_faction: u8,
@@ -46,8 +46,8 @@ impl Sf1Record for SpellEntry {
         let mut skill_reqs = [0u8; 12];
         cur.read_exact(&mut skill_reqs)?;
         let mana_cost = cur.read_u16::<LittleEndian>()?;
-        let cast_time_ms = cur.read_u32::<LittleEndian>()?;
-        let recast_time_ms = cur.read_u32::<LittleEndian>()?;
+        let cast_time_ms = cur.read_u16::<LittleEndian>()?;
+        let recast_time_ms = cur.read_u16::<LittleEndian>()?;
         let min_range = cur.read_u16::<LittleEndian>()?;
         let max_range = cur.read_u16::<LittleEndian>()?;
         let cast_target_faction = cur.read_u8()?;
@@ -88,8 +88,8 @@ impl Sf1Record for SpellEntry {
         cur.write_u16::<LittleEndian>(self.spell_line_id)?;
         cur.write_all(&self.skill_reqs)?;
         cur.write_u16::<LittleEndian>(self.mana_cost)?;
-        cur.write_u32::<LittleEndian>(self.cast_time_ms)?;
-        cur.write_u32::<LittleEndian>(self.recast_time_ms)?;
+        cur.write_u16::<LittleEndian>(self.cast_time_ms)?;
+        cur.write_u16::<LittleEndian>(self.recast_time_ms)?;
         cur.write_u16::<LittleEndian>(self.min_range)?;
         cur.write_u16::<LittleEndian>(self.max_range)?;
         cur.write_u8(self.cast_target_faction)?;
@@ -112,7 +112,6 @@ impl SpellEntry {
             _ => "Unknown",
         }
     }
-
     pub fn format_target_mode(&self) -> &'static str {
         match self.cast_target_mode {
             1 => "Figure",
@@ -259,7 +258,7 @@ impl Sf1Record for ItemStatsModifierEntry {
 }
 
 // =============================================================================
-// CATEGORY 2005 (0x07D5) - UnitStats
+// CATEGORY 2005 (0x07D5) - UnitStats (Verified 47 Bytes Stride)
 // =============================================================================
 
 #[derive(Clone, Debug, PartialEq)]
@@ -581,24 +580,24 @@ impl Sf1Record for RaceEntry {
 }
 
 // =============================================================================
-// CATEGORY 2024 (0x07E8) - UnitsMaster
+// CATEGORY 2024 (0x07E8) - UnitsMaster (Verified 64 Bytes Stride)
 // =============================================================================
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnitMasterEntry {
-    pub unit_id: u16,
-    pub name_id: u16,
-    pub stats_id: u16,
-    pub xp_gain: u32,
-    pub xp_falloff: u16,
-    pub copper: u32,
-    pub raw_mid: [u8; 4],
-    pub armor: u16,
-    pub pad: u8,
+    pub unit_id: u16,          // 0..2
+    pub name_id: u16,          // 2..4
+    pub stats_id: u16,         // 4..6
+    pub xp_gain: u32,          // 6..10
+    pub xp_falloff: u16,       // 10..12
+    pub copper: u32,           // 12..16
+    pub raw_mid: [u8; 7],      // 16..23 (Remaining sub-structure params)
+    pub internal_name: String, // 23..63 (40 bytes null-terminated ASCII string)
+    pub spawn_flag: u8,        // 63..64 (Active / Spawnable flag byte)
 }
 
 impl Sf1Record for UnitMasterEntry {
-    const STRIDE: usize = 23;
+    const STRIDE: usize = 64;
 
     fn decode(bytes: &[u8]) -> io::Result<Self> {
         let mut cur = Cursor::new(bytes);
@@ -608,10 +607,15 @@ impl Sf1Record for UnitMasterEntry {
         let xp_gain = cur.read_u32::<LittleEndian>()?;
         let xp_falloff = cur.read_u16::<LittleEndian>()?;
         let copper = cur.read_u32::<LittleEndian>()?;
-        let mut raw_mid = [0u8; 4];
+        let mut raw_mid = [0u8; 7];
         cur.read_exact(&mut raw_mid)?;
-        let armor = cur.read_u16::<LittleEndian>()?;
-        let pad = cur.read_u8()?;
+
+        let mut name_buf = [0u8; 40];
+        cur.read_exact(&mut name_buf)?;
+        let end = name_buf.iter().position(|&b| b == 0).unwrap_or(40);
+        let internal_name = crate::cff::decode_windows(&name_buf[..end]);
+
+        let spawn_flag = cur.read_u8()?;
 
         Ok(Self {
             unit_id,
@@ -621,8 +625,8 @@ impl Sf1Record for UnitMasterEntry {
             xp_falloff,
             copper,
             raw_mid,
-            armor,
-            pad,
+            internal_name,
+            spawn_flag,
         })
     }
 
@@ -635,8 +639,14 @@ impl Sf1Record for UnitMasterEntry {
         cur.write_u16::<LittleEndian>(self.xp_falloff)?;
         cur.write_u32::<LittleEndian>(self.copper)?;
         cur.write_all(&self.raw_mid)?;
-        cur.write_u16::<LittleEndian>(self.armor)?;
-        cur.write_u8(self.pad)?;
+
+        let mut name_buf = [0u8; 40];
+        let enc = crate::cff::encode_windows(&self.internal_name);
+        let len = enc.len().min(39);
+        name_buf[..len].copy_from_slice(&enc[..len]);
+        cur.write_all(&name_buf)?;
+
+        cur.write_u8(self.spawn_flag)?;
         Ok(())
     }
 }
@@ -674,29 +684,29 @@ impl Sf1Record for UnitEquipmentEntry {
 }
 
 // =============================================================================
-// CATEGORY 2029 (0x07ED) - BuildingsMaster
+// CATEGORY 2029 (0x07ED) - BuildingsMaster (Verified 23 Bytes Stride)
 // =============================================================================
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingMasterEntry {
-    pub building_id: u16,
-    pub race_id: u8,
-    pub can_enter: u8,
-    pub slots: u8,
-    pub health: u16,
-    pub name_id: u16,
-    pub rot_center_x: i16,
-    pub rot_center_y: i16,
-    pub num_of_polygons: u8,
-    pub worker_cycle_time: u16,
-    pub building_req_id: u16,
-    pub initial_angle: u16,
-    pub description_ext_id: u16,
-    pub flags: u8,
+    pub building_id: u16,        // 0..2
+    pub race_id: u8,             // 2
+    pub can_enter: u8,           // 3
+    pub slots: u8,               // 4 (Worker slots: 0, 1, 5)
+    pub health: u16,             // 5..7
+    pub name_id: u16,            // 7..9
+    pub rot_center_x: i16,       // 9..11
+    pub rot_center_y: i16,       // 11..13
+    pub num_of_polygons: u8,     // 13
+    pub worker_cycle_time: u16,  // 14..16 (e.g. 3000ms = 0x0BB8)
+    pub building_req_id: u16,    // 16..18
+    pub initial_angle: u16,      // 18..20 (e.g. 315 deg = 0x013B)
+    pub description_ext_id: u16, // 20..22
+    pub flags: u8,               // 22
 }
 
 impl Sf1Record for BuildingMasterEntry {
-    const STRIDE: usize = 24;
+    const STRIDE: usize = 23;
 
     fn decode(bytes: &[u8]) -> io::Result<Self> {
         let mut cur = Cursor::new(bytes);
@@ -771,23 +781,22 @@ impl Sf1Record for TerrainCultivationEntry {
 }
 
 // =============================================================================
-// CATEGORY 2040 (0x07F8) - UnitLootTables
+// CATEGORY 2040 (0x07F8) - UnitLootTables (Verified 11 Bytes Stride)
 // =============================================================================
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnitLootTableEntry {
-    pub unit_id: u16,
-    pub slot: u8,
-    pub item1: u16,
-    pub chance1: u8,
-    pub item2: u16,
-    pub chance2: u8,
-    pub item3: u16,
-    pub pad: u8,
+    pub unit_id: u16, // 0..2
+    pub slot: u8,     // 2
+    pub item1: u16,   // 3..5
+    pub chance1: u8,  // 5
+    pub item2: u16,   // 6..8
+    pub chance2: u8,  // 8
+    pub item3: u16,   // 9..11
 }
 
 impl Sf1Record for UnitLootTableEntry {
-    const STRIDE: usize = 12;
+    const STRIDE: usize = 11;
 
     fn decode(bytes: &[u8]) -> io::Result<Self> {
         let mut cur = Cursor::new(bytes);
@@ -799,7 +808,6 @@ impl Sf1Record for UnitLootTableEntry {
             item2: cur.read_u16::<LittleEndian>()?,
             chance2: cur.read_u8()?,
             item3: cur.read_u16::<LittleEndian>()?,
-            pad: cur.read_u8()?,
         })
     }
 
@@ -812,7 +820,6 @@ impl Sf1Record for UnitLootTableEntry {
         cur.write_u16::<LittleEndian>(self.item2)?;
         cur.write_u8(self.chance2)?;
         cur.write_u16::<LittleEndian>(self.item3)?;
-        cur.write_u8(self.pad)?;
         Ok(())
     }
 }
@@ -897,23 +904,24 @@ impl Sf1Record for ComplexPropertyEntry {
 }
 
 // =============================================================================
-// CATEGORY 2050 (0x0802) - ObjectsMaster
+// CATEGORY 2050 (0x0802) - ObjectsMaster (Verified 60 Bytes Stride)
 // =============================================================================
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObjectMasterEntry {
-    pub object_id: u16,
-    pub name_id: u16,
-    pub flags: u8,
-    pub flatten_mode: u8,
-    pub polygon_num: u8,
-    pub resource_amount: u16,
-    pub width: u16,
-    pub height: u16,
+    pub object_id: u16,        // 0..2
+    pub name_id: u16,          // 2..4
+    pub flags: u8,             // 4
+    pub flatten_mode: u8,      // 5
+    pub polygon_num: u8,       // 6
+    pub category_name: String, // 7..54 (47 bytes ASCII string)
+    pub resource_amount: u16,  // 54..56
+    pub width: u16,            // 56..58
+    pub height: u16,           // 58..60
 }
 
 impl Sf1Record for ObjectMasterEntry {
-    const STRIDE: usize = 22;
+    const STRIDE: usize = 60;
 
     fn decode(bytes: &[u8]) -> io::Result<Self> {
         let mut cur = Cursor::new(bytes);
@@ -922,7 +930,12 @@ impl Sf1Record for ObjectMasterEntry {
         let flags = cur.read_u8()?;
         let flatten_mode = cur.read_u8()?;
         let polygon_num = cur.read_u8()?;
-        let _pad = cur.read_u8()?;
+
+        let mut str_buf = [0u8; 47];
+        cur.read_exact(&mut str_buf)?;
+        let end = str_buf.iter().position(|&b| b == 0).unwrap_or(47);
+        let category_name = crate::cff::decode_windows(&str_buf[..end]);
+
         let resource_amount = cur.read_u16::<LittleEndian>()?;
         let width = cur.read_u16::<LittleEndian>()?;
         let height = cur.read_u16::<LittleEndian>()?;
@@ -933,6 +946,7 @@ impl Sf1Record for ObjectMasterEntry {
             flags,
             flatten_mode,
             polygon_num,
+            category_name,
             resource_amount,
             width,
             height,
@@ -946,14 +960,20 @@ impl Sf1Record for ObjectMasterEntry {
         cur.write_u8(self.flags)?;
         cur.write_u8(self.flatten_mode)?;
         cur.write_u8(self.polygon_num)?;
-        cur.write_u8(0)?;
+
+        let mut str_buf = [0u8; 47];
+        let enc = crate::cff::encode_windows(&self.category_name);
+        let len = enc.len().min(46);
+        str_buf[..len].copy_from_slice(&enc[..len]);
+        cur.write_all(&str_buf)?;
+
         cur.write_u16::<LittleEndian>(self.resource_amount)?;
         cur.write_u16::<LittleEndian>(self.width)?;
         cur.write_u16::<LittleEndian>(self.height)?;
         Ok(())
     }
 }
-
+#[allow(dead_code)]
 impl ObjectMasterEntry {
     pub fn blocks_terrain(&self) -> bool {
         (self.flags & 0x01) != 0
@@ -970,39 +990,42 @@ impl ObjectMasterEntry {
 }
 
 // =============================================================================
-// CATEGORY 2053 (0x0805) - Portals
+// CATEGORY 2053 (0x0805) - Portals (Verified 13 Bytes Stride)
 // =============================================================================
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PortalEntry {
-    pub portal_id: u16,
-    pub map_id: u16,
-    pub pos_x: u16,
-    pub pos_y: u16,
-    pub is_default: u8,
+    pub portal_id: u16, // 0..2
+    pub map_id: u32,    // 2..6
+    pub pos_x: u16,     // 6..8
+    pub pos_y: u16,     // 8..10
+    pub is_default: u8, // 10
+    pub name_id: u16,   // 11..13 (Name link in LocalizedStrings)
 }
 
 impl Sf1Record for PortalEntry {
-    const STRIDE: usize = 9;
+    const STRIDE: usize = 13;
 
     fn decode(bytes: &[u8]) -> io::Result<Self> {
         let mut cur = Cursor::new(bytes);
         Ok(Self {
             portal_id: cur.read_u16::<LittleEndian>()?,
-            map_id: cur.read_u16::<LittleEndian>()?,
+            map_id: cur.read_u32::<LittleEndian>()?,
             pos_x: cur.read_u16::<LittleEndian>()?,
             pos_y: cur.read_u16::<LittleEndian>()?,
             is_default: cur.read_u8()?,
+            name_id: cur.read_u16::<LittleEndian>()?,
         })
     }
 
     fn encode(&self, out: &mut [u8]) -> io::Result<()> {
         let mut cur = Cursor::new(out);
         cur.write_u16::<LittleEndian>(self.portal_id)?;
-        cur.write_u16::<LittleEndian>(self.map_id)?;
+        cur.write_u32::<LittleEndian>(self.map_id)?;
         cur.write_u16::<LittleEndian>(self.pos_x)?;
         cur.write_u16::<LittleEndian>(self.pos_y)?;
         cur.write_u8(self.is_default)?;
+        cur.write_u16::<LittleEndian>(self.name_id)?;
         Ok(())
     }
 }
@@ -1037,42 +1060,42 @@ impl Sf1Record for DescriptionEntry {
 }
 
 // =============================================================================
-// CATEGORY 2061 (0x080D) - Quests
+// CATEGORY 2061 (0x080D) - Quests (Verified 17 Bytes Stride)
 // =============================================================================
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct QuestEntry {
-    pub quest_id: u16,
-    pub parent_quest_id: u16,
-    pub is_main_quest: u8,
-    pub name_id: u16,
-    pub description_id: u16,
-    pub order_index: u16,
+    pub quest_id: u32,        // 0..4
+    pub parent_quest_id: u32, // 4..8
+    pub is_main_quest: u8,    // 8
+    pub name_id: u16,         // 9..11
+    pub description_id: u16,  // 11..13
+    pub order_index: u32,     // 13..17
 }
 
 impl Sf1Record for QuestEntry {
-    const STRIDE: usize = 11;
+    const STRIDE: usize = 17;
 
     fn decode(bytes: &[u8]) -> io::Result<Self> {
         let mut cur = Cursor::new(bytes);
         Ok(Self {
-            quest_id: cur.read_u16::<LittleEndian>()?,
-            parent_quest_id: cur.read_u16::<LittleEndian>()?,
+            quest_id: cur.read_u32::<LittleEndian>()?,
+            parent_quest_id: cur.read_u32::<LittleEndian>()?,
             is_main_quest: cur.read_u8()?,
             name_id: cur.read_u16::<LittleEndian>()?,
             description_id: cur.read_u16::<LittleEndian>()?,
-            order_index: cur.read_u16::<LittleEndian>()?,
+            order_index: cur.read_u32::<LittleEndian>()?,
         })
     }
 
     fn encode(&self, out: &mut [u8]) -> io::Result<()> {
         let mut cur = Cursor::new(out);
-        cur.write_u16::<LittleEndian>(self.quest_id)?;
-        cur.write_u16::<LittleEndian>(self.parent_quest_id)?;
+        cur.write_u32::<LittleEndian>(self.quest_id)?;
+        cur.write_u32::<LittleEndian>(self.parent_quest_id)?;
         cur.write_u8(self.is_main_quest)?;
         cur.write_u16::<LittleEndian>(self.name_id)?;
         cur.write_u16::<LittleEndian>(self.description_id)?;
-        cur.write_u16::<LittleEndian>(self.order_index)?;
+        cur.write_u32::<LittleEndian>(self.order_index)?;
         Ok(())
     }
 }

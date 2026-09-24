@@ -4,7 +4,9 @@ use super::container::Manifest;
 use super::editor::EditorItem;
 use super::formulas::{calculate_cascade_loot_chances, calculate_total_xp, calculate_weapon_dps};
 use super::sf1_schema::*;
+use byteorder::{LittleEndian, ReadBytesExt};
 use std::fs;
+use std::io::Cursor;
 use std::path::Path;
 
 #[derive(Clone, Copy, Debug)]
@@ -125,7 +127,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x07E8,
         name: "UnitsMaster",
-        stride: 23,
+        stride: 64, // Verified: 23 bytes binary + 40 bytes name string + 1 byte flag
         default_c_type: 1,
         description: "Unit database and XP (Cat 2024)",
     },
@@ -153,7 +155,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x07ED,
         name: "BuildingsMaster",
-        stride: 24,
+        stride: 23, // Verified: 23 bytes exact
         default_c_type: 1,
         description: "Building health & tech (Cat 2029)",
     },
@@ -195,7 +197,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x07F8,
         name: "UnitLootTables",
-        stride: 12,
+        stride: 11, // Verified: 11 bytes cascading loot
         default_c_type: 1,
         description: "Monster loot tables (Cat 2040)",
     },
@@ -244,7 +246,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x0802,
         name: "ObjectsMaster",
-        stride: 22,
+        stride: 60, // Verified: 60 bytes with internal category path
         default_c_type: 1,
         description: "Interactive map props (Cat 2050)",
     },
@@ -265,8 +267,8 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x0805,
         name: "Portals",
-        stride: 9,
-        default_c_type: 1,
+        stride: 13, // Verified: 13 bytes with NameID
+        default_c_type: 3,
         description: "World map portals (Cat 2053)",
     },
     Sf1ChunkInfo {
@@ -275,6 +277,27 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
         stride: 18,
         default_c_type: 1,
         description: "Magic schools lines (Cat 2054)",
+    },
+    Sf1ChunkInfo {
+        id: 0x0807,
+        name: "EngineConfigGlobal",
+        stride: 6, // Verified: chunk_39.dat
+        default_c_type: 1,
+        description: "Global Engine Config (Cat 2055)",
+    },
+    Sf1ChunkInfo {
+        id: 0x0808,
+        name: "SpellLineRequirements",
+        stride: 6, // Verified: chunk_2.dat
+        default_c_type: 1,
+        description: "Spell line tier prerequisites (Cat 2056)",
+    },
+    Sf1ChunkInfo {
+        id: 0x0809,
+        name: "ObjectCollision",
+        stride: 0, // Dynamic length variable chunk
+        default_c_type: 1,
+        description: "Object Collision Polygons (Cat 2057)",
     },
     Sf1ChunkInfo {
         id: 0x080A,
@@ -293,7 +316,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x080D,
         name: "Quests",
-        stride: 11,
+        stride: 17, // Verified: 17 bytes exact
         default_c_type: 1,
         description: "Quests tree (Cat 2061)",
     },
@@ -442,7 +465,10 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                     items.push(EditorItem {
                         id_str: e.item_id.to_string(),
                         val1: format!("Buy: {}, Sell: {}", e.buy_value, e.sell_value),
-                        val2: format!("NameID: {} | StatsID: {} | UnitID: {} | BuildingID: {} | Flags: 0x{:02X} | Set: {}", e.name_id, e.unit_stats_id, e.army_unit_id, e.building_id, e.option_flags, e.item_set_id),
+                        val2: format!(
+                            "NameID: {} | StatsID: {} | UnitID: {} | BuildingID: {} | Flags: 0x{:02X} | Set: {}",
+                            e.name_id, e.unit_stats_id, e.army_unit_id, e.building_id, e.option_flags, e.item_set_id
+                        ),
                         display,
                     });
                 }
@@ -622,7 +648,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 9. Units Master (0x07E8)
+    // 9. Units Master (0x07E8) - 64-byte verified stride with internal developer name
     else if (category.contains("0x07E8") || category.contains("2024"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E8)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -631,16 +657,16 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             if let Ok(u) = UnitMasterEntry::decode(chunk_slice) {
                 let max_farm_xp = calculate_total_xp(u.xp_gain, u.xp_falloff, 500);
                 let display = format!(
-                    "Unit #{:<5} [Stats: {}] | Armor: {} | Base XP: {} | Loot: {}c",
-                    u.unit_id, u.stats_id, u.armor, u.xp_gain, u.copper
+                    "Unit #{:<5} [{}] | Stats: {} | Base XP: {} | Loot: {}c",
+                    u.unit_id, u.internal_name, u.stats_id, u.xp_gain, u.copper
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: u.unit_id.to_string(),
-                        val1: u.xp_gain.to_string(),
+                        val1: u.internal_name,
                         val2: format!(
-                            "Armor: {} | Falloff: {} | Copper: {} | NameID: {} | Max XP: {}",
-                            u.armor, u.xp_falloff, u.copper, u.name_id, max_farm_xp
+                            "StatsID: {} | NameID: {} | XP: {} | Falloff: {} | Copper: {} | Max XP: {}",
+                            u.stats_id, u.name_id, u.xp_gain, u.xp_falloff, u.copper, max_farm_xp
                         ),
                         display,
                     });
@@ -648,7 +674,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 10. Buildings Master (0x07ED)
+    // 10. Buildings Master (0x07ED) - 23-byte verified stride
     else if (category.contains("0x07ED") || category.contains("2029"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07ED)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -663,14 +689,21 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                     items.push(EditorItem {
                         id_str: b.building_id.to_string(),
                         val1: format!("Health: {}, Slots: {}", b.health, b.slots),
-                        val2: format!("ReqBuilding: {} | WorkerCycle: {}ms | RotCenter: ({}, {}) | Polygons: {}", b.building_req_id, b.worker_cycle_time, b.rot_center_x, b.rot_center_y, b.num_of_polygons),
+                        val2: format!(
+                            "ReqBuilding: {} | WorkerCycle: {}ms | Angle: {} | RotCenter: ({}, {})",
+                            b.building_req_id,
+                            b.worker_cycle_time,
+                            b.initial_angle,
+                            b.rot_center_x,
+                            b.rot_center_y
+                        ),
                         display,
                     });
                 }
             }
         }
     }
-    // 11. Unit Loot Tables (0x07F8)
+    // 11. Unit Loot Tables (0x07F8) - 11-byte verified cascading stride
     else if (category.contains("0x07F8") || category.contains("2040"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07F8)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -711,52 +744,37 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                     items.push(EditorItem {
                         id_str: cp.level.to_string(),
                         val1: cp.experience_required.to_string(),
-                        val2: format!("HP Factor: {}% | MP Factor: {}% | Dmg Factor: {}% | Armor Factor: {}% | AttrLimit: {} | SkillLimit: {}", cp.health_factor, cp.mana_factor, cp.damage_factor, cp.armor_class_factor, cp.attribute_point_limit, cp.skill_point_limit),
+                        val2: format!(
+                            "HP Factor: {}% | MP Factor: {}% | Dmg Factor: {}% | Armor Factor: {}% | AttrLimit: {} | SkillLimit: {}",
+                            cp.health_factor, cp.mana_factor, cp.damage_factor, cp.armor_class_factor, cp.attribute_point_limit, cp.skill_point_limit
+                        ),
                         display,
                     });
                 }
             }
         }
     }
-    // 13. Objects Master (0x0802)
+    // 13. Objects Master (0x0802) - 60-byte verified stride
     else if (category.contains("0x0802") || category.contains("2050"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0802)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
         for chunk_slice in bytes.as_chunks::<{ ObjectMasterEntry::STRIDE }>().0 {
             if let Ok(o) = ObjectMasterEntry::decode(chunk_slice) {
-                let loot_tag = if o.contains_loot() {
-                    " [Loot Chest]"
-                } else {
-                    ""
-                };
-                let block_tag = if o.blocks_terrain() {
-                    " [Blocks Path]"
-                } else {
-                    ""
-                };
-                let height_tag = if o.adjusts_height() {
-                    " [Adjusts Height]"
-                } else {
-                    ""
-                };
-                let place_tag = if o.is_placeable() { " [Placeable]" } else { "" };
+                let loot_tag = if o.contains_loot() { " [Loot]" } else { "" };
+                let block_tag = if o.blocks_terrain() { " [Blocks]" } else { "" };
                 let display = format!(
-                    "Object #{:<5}{}{} | Size: {}x{} | Res: {}{}{}",
-                    o.object_id,
-                    loot_tag,
-                    place_tag,
-                    o.width,
-                    o.height,
-                    o.resource_amount,
-                    block_tag,
-                    height_tag
+                    "Object #{:<4} [{}] | Res: {}{}{}",
+                    o.object_id, o.category_name, o.resource_amount, loot_tag, block_tag
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: o.object_id.to_string(),
                         val1: o.resource_amount.to_string(),
-                        val2: format!("NameID: {} | Dims: {}x{} | Flatten: {} | Polygons: {} | Flags: 0x{:02X}{}{}", o.name_id, o.width, o.height, o.flatten_mode, o.polygon_num, o.flags, height_tag, place_tag),
+                        val2: format!(
+                            "Type: {} | NameID: {} | Dims: {}x{} | Flags: 0x{:02X}",
+                            o.category_name, o.name_id, o.width, o.height, o.flags
+                        ),
                         display,
                     });
                 }
@@ -808,7 +826,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 16. Quests (0x080D)
+    // 16. Quests (0x080D) - 17-byte verified stride
     else if (category.contains("0x080D") || category.contains("2061"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080D)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -926,7 +944,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
-    // 21. Portals (0x0805)
+    // 21. Portals (0x0805) - 13-byte verified stride
     else if (category.contains("0x0805") || category.contains("2053"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0805)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -935,14 +953,17 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             if let Ok(p) = PortalEntry::decode(chunk_slice) {
                 let def_tag = if p.is_default != 0 { " [Default]" } else { "" };
                 let display = format!(
-                    "Portal #{:<3} [Map: {}]{} | Pos: ({}, {})",
+                    "Portal #{:<4} [Map: {:<2}]{} | Pos: ({}, {})",
                     p.portal_id, p.map_id, def_tag, p.pos_x, p.pos_y
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: p.portal_id.to_string(),
                         val1: p.map_id.to_string(),
-                        val2: format!("X: {}, Y: {}, Default: {}", p.pos_x, p.pos_y, p.is_default),
+                        val2: format!(
+                            "Pos: ({}, {}) | Default: {} | NameID: {}",
+                            p.pos_x, p.pos_y, p.is_default, p.name_id
+                        ),
                         display,
                     });
                 }
@@ -971,6 +992,47 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             }
         }
     }
+    // 23. Object Collision Polygons (0x0809) - Dynamic Length Parsing
+    else if (category.contains("0x0809") || category.contains("2057"))
+        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0809)
+        && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
+    {
+        let mut cur = Cursor::new(&bytes);
+        while (cur.position() as usize) < bytes.len() {
+            if cur.position() as usize + 5 > bytes.len() {
+                break;
+            }
+
+            let obj_id = cur.read_u16::<LittleEndian>().unwrap_or(0);
+            let flag1 = cur.read_u8().unwrap_or(0);
+            let flag2 = cur.read_u8().unwrap_or(0);
+            let vertex_count = cur.read_u8().unwrap_or(0);
+
+            let mut coords = Vec::new();
+            for _ in 0..vertex_count {
+                if cur.position() as usize + 4 > bytes.len() {
+                    break;
+                }
+                let x = cur.read_i16::<LittleEndian>().unwrap_or(0);
+                let y = cur.read_i16::<LittleEndian>().unwrap_or(0);
+                coords.push(format!("({},{})", x, y));
+            }
+
+            let display = format!(
+                "ObjCollision #{:<4} | Vertices: {:<2} | Flags: [{}, {}]",
+                obj_id, vertex_count, flag1, flag2
+            );
+
+            if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
+                items.push(EditorItem {
+                    id_str: obj_id.to_string(),
+                    val1: vertex_count.to_string(),
+                    val2: coords.join(" | "),
+                    display,
+                });
+            }
+        }
+    }
 
     items
 }
@@ -987,6 +1049,11 @@ pub fn save_sf1_item(
     let m_str = fs::read_to_string(manifest_path)?;
     let manifest: Manifest = serde_json::from_str(&m_str)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+
+    // Dynamic-length chunk editing is skipped directly from flat UI rows
+    if category.contains("0x0809") || category.contains("2057") {
+        return Ok(());
+    }
 
     macro_rules! update_record {
         ($chunk_id:expr, $entry_type:ident, $modify_block:expr) => {
@@ -1013,6 +1080,12 @@ pub fn save_sf1_item(
             }
             if let Some(p) = parse_numeric_key_u16(val1, "Power") {
                 e.effect_power = p;
+            }
+            if let Some(c) = parse_numeric_key_u16(val2, "Cast") {
+                e.cast_time_ms = c;
+            }
+            if let Some(r) = parse_numeric_key_u16(val2, "Recast") {
+                e.recast_time_ms = r;
             }
         });
     } else if category.contains("0x07D3") || category.contains("2003") {
@@ -1087,11 +1160,14 @@ pub fn save_sf1_item(
         });
     } else if category.contains("0x07E8") || category.contains("2024") {
         update_record!(0x07E8, UnitMasterEntry, |e: &mut UnitMasterEntry| {
-            if let Ok(xp) = val1.trim().parse::<u32>() {
+            if !val1.is_empty() {
+                e.internal_name = val1.trim().to_string();
+            }
+            if let Some(xp) = parse_numeric_key_u32(val2, "XP") {
                 e.xp_gain = xp;
             }
-            if let Some(arm) = parse_numeric_key_u16(val2, "Armor") {
-                e.armor = arm;
+            if let Some(c) = parse_numeric_key_u32(val2, "Copper") {
+                e.copper = c;
             }
         });
     } else if category.contains("0x07ED") || category.contains("2029") {
@@ -1157,7 +1233,7 @@ pub fn save_sf1_item(
         );
     } else if category.contains("0x080D") || category.contains("2061") {
         update_record!(0x080D, QuestEntry, |e: &mut QuestEntry| {
-            if let Some(p) = parse_numeric_key_u16(val1, "Parent") {
+            if let Some(p) = parse_numeric_key_u32(val1, "Parent") {
                 e.parent_quest_id = p;
             }
         });
@@ -1196,7 +1272,7 @@ pub fn save_sf1_item(
     } else if category.contains("0x0805") || category.contains("2053") {
         update_record!(0x0805, PortalEntry, |e: &mut PortalEntry| {
             if let Ok(m) = val1.trim().parse::<u32>() {
-                e.map_id = m as u16;
+                e.map_id = m;
             }
         });
     } else if category.contains("0x080A") || category.contains("2058") {

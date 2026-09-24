@@ -37,6 +37,7 @@ export component EditorTab inherits HorizontalLayout {
         "Unit Loot Tables (0x07F8)",
         "Level Progression (0x0800)",
         "Objects Master (0x0802)",
+        "Object Collision (0x0809)",
         "Localized Strings"
     ];
     in-out property <string> editor_lang_filter: "All Languages";
@@ -728,6 +729,7 @@ export component EditorTab inherits HorizontalLayout {
                     (root.editor_active_category == "Buildings Master (0x07ED)") ? "Health & Slots:" :
                     (root.editor_active_category == "Level Progression (0x0800)") ? "XP Required:" :
                     (root.editor_active_category == "Objects Master (0x0802)") ? "Resource Amount:" :
+                    (root.editor_active_category == "Object Collision (0x0809)") ? "Vertex Count:" :
                     "Target / Scroll ID:";
                 label-width: 140px;
                 LineEdit {
@@ -749,7 +751,7 @@ export component EditorTab inherits HorizontalLayout {
 
             CustomButton {
                 text: "Save Changes to Database Chunk (.dat)";
-                enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "";
+                enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "" && root.editor_active_category != "Object Collision (0x0809)";
                 primary-color: #23a55a;
                 height: 32px;
                 clicked => {
