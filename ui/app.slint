@@ -13,7 +13,7 @@ import { LuaTab } from "./tabs/lua_tab.slint";
 import { LogTab } from "./tabs/log_tab.slint";
 
 export component AppWindow inherits Window {
-    title: "SFTool v2.1 - SpellForce Modding & Balance Studio";
+    title: "SFTool v2.2 - SpellForce Modding & Balance Studio";
     min-width: 1100px;
     min-height: 760px;
     preferred-width: 1140px;
@@ -42,7 +42,14 @@ export component AppWindow inherits Window {
     in-out property <string> editor_asset_source: "";
     in-out property <string> editor_filter: "";
     in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
-    in-out property <[string]> available_categories: ["2D Gfx Items (0x07DC)", "Spells Mapping (0x07E2)", "Localized Strings"];
+    in-out property <[string]> available_categories: [
+        "2D Gfx Items (0x07DC)",
+        "Spells Mapping (0x07E2)",
+        "Weapon Stats (0x07DF)",
+        "Units Master (0x07E8)",
+        "Unit Loot Tables (0x07F8)",
+        "Localized Strings"
+    ];
     in-out property <string> editor_lang_filter: "All Languages";
     in-out property <[string]> available_languages: [
         "All Languages",
@@ -65,7 +72,7 @@ export component AppWindow inherits Window {
     in-out property <string> scroll_name_disp: "";
     in-out property <string> asset_status_text: "Select a record to preview asset.";
 
-    // History Undo/Redo States
+    // History Undo/Redo States (CFF)
     in-out property <bool> can_undo: false;
     in-out property <bool> can_redo: false;
 
@@ -76,6 +83,23 @@ export component AppWindow inherits Window {
     in-out property <string> luadec_path: "luadec_32_deb.exe";
     in-out property <string> luac_path: "luac4.exe";
     in-out property <bool> lua_resume: true;
+
+    // --- Lua SF1 SQL Visual Bindings State & Undo/Redo ---
+    in-out property <string> sql_file_path: "";
+    in-out property <string> sql_file_type: "sql_item.lua";
+    in-out property <[StandardListViewItem]> sql_entries: [];
+    in-out property <int> sql_selected_idx: -1;
+    in-out property <string> sql_field_id: "";
+    in-out property <string> sql_field_val1: "";
+    in-out property <string> sql_field_val2: "";
+    in-out property <string> sql_field_val3: "";
+    in-out property <string> sql_field_val4: "";
+    in-out property <string> sql_label_val1: "Male Cold Mesh:";
+    in-out property <string> sql_label_val2: "Female Cold Mesh:";
+    in-out property <string> sql_label_val3: "AnimSet:";
+    in-out property <string> sql_label_val4: "Selection Size:";
+    in-out property <bool> can_sql_undo: false;
+    in-out property <bool> can_sql_redo: false;
 
     // --- Lua SF2 API Explorer State ---
     in-out property <[StandardListViewItem]> api_list: [];
@@ -92,12 +116,13 @@ export component AppWindow inherits Window {
     callback browse_folder() -> string;
     callback save_file(string) -> string;
 
-    // Callbacks: PAK
+    // Callbacks: PAK & VFS Tree
     callback unpack_pak(string, string);
     callback pack_pak(string, string, string, int);
     callback batch_unpack_pak(string);
     callback batch_pack_pak(string, string, int);
     callback archive_item_clicked(int);
+    callback load_archive_tree(string);
 
     // Callbacks: CFF & Diff Engine
     callback unpack_cff(string, string);
@@ -122,6 +147,14 @@ export component AppWindow inherits Window {
     callback decompile_lua(string, string, string, bool);
     callback check_lua_syntax(string, string);
     callback format_lua_scripts(string, bool);
+
+    // Callbacks: SpellForce 1 SQL Lua
+    callback load_sql_file(string, string);
+    callback select_sql_entry(int);
+    callback save_sql_entry(int, string, string, string, string);
+    callback write_sql_file(string, string);
+    callback sql_undo();
+    callback sql_redo();
 
     // Callbacks: Lua Core (SF2)
     callback check_lua_syntax_sf2(string, string);
@@ -203,6 +236,7 @@ export component AppWindow inherits Window {
                 batch_unpack_pak(f) => { root.batch_unpack_pak(f) }
                 batch_pack_pak(f, fmt, comp) => { root.batch_pack_pak(f, fmt, comp) }
                 archive_item_clicked(idx) => { root.archive_item_clicked(idx) }
+                load_archive_tree(p) => { root.load_archive_tree(p) }
             }
 
             if root.active_tab == 1: CffTab {
@@ -220,6 +254,7 @@ export component AppWindow inherits Window {
                 create_cff_diff(b, m, p) => { root.create_cff_diff(b, m, p) }
                 apply_cff_patch(t, p) => { root.apply_cff_patch(t, p) }
                 archive_item_clicked(idx) => { root.archive_item_clicked(idx) }
+                load_archive_tree(p) => { root.load_archive_tree(p) }
             }
 
             if root.active_tab == 2: EditorTab {
@@ -269,6 +304,22 @@ export component AppWindow inherits Window {
                 luac_path <=> root.luac_path;
                 lua_resume <=> root.lua_resume;
 
+                sql_file_path <=> root.sql_file_path;
+                sql_file_type <=> root.sql_file_type;
+                sql_entries: root.sql_entries;
+                sql_selected_idx <=> root.sql_selected_idx;
+                sql_field_id <=> root.sql_field_id;
+                sql_field_val1 <=> root.sql_field_val1;
+                sql_field_val2 <=> root.sql_field_val2;
+                sql_field_val3 <=> root.sql_field_val3;
+                sql_field_val4 <=> root.sql_field_val4;
+                sql_label_val1 <=> root.sql_label_val1;
+                sql_label_val2 <=> root.sql_label_val2;
+                sql_label_val3 <=> root.sql_label_val3;
+                sql_label_val4 <=> root.sql_label_val4;
+                can_sql_undo: root.can_sql_undo;
+                can_sql_redo: root.can_sql_redo;
+
                 api_list: root.api_list;
                 selected_fn_name <=> root.selected_fn_name;
                 selected_fn_snippet <=> root.selected_fn_snippet;
@@ -280,6 +331,13 @@ export component AppWindow inherits Window {
                 decompile_lua(s, d, exe, res) => { root.decompile_lua(s, d, exe, res) }
                 check_lua_syntax(s, exe) => { root.check_lua_syntax(s, exe) }
                 format_lua_scripts(s, tabs) => { root.format_lua_scripts(s, tabs) }
+
+                load_sql_file(fp, ft) => { root.load_sql_file(fp, ft) }
+                select_sql_entry(idx) => { root.select_sql_entry(idx) }
+                save_sql_entry(idx, v1, v2, v3, v4) => { root.save_sql_entry(idx, v1, v2, v3, v4) }
+                write_sql_file(fp, ft) => { root.write_sql_file(fp, ft) }
+                sql_undo => { root.sql_undo() }
+                sql_redo => { root.sql_redo() }
 
                 check_lua_syntax_sf2(s, exe) => { root.check_lua_syntax_sf2(s, exe) }
                 format_lua_stylua(s, exe, tabs) => { root.format_lua_stylua(s, exe, tabs) }
@@ -327,7 +385,7 @@ export component AppWindow inherits Window {
                 }
 
                 Text {
-                    text: "SFTool v2.1";
+                    text: "SFTool v2.2";
                     color: #808080;
                     font-size: 11px;
                     font-weight: 700;

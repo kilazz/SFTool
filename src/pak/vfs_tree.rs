@@ -1,3 +1,5 @@
+// src/pak/vfs_tree.rs
+
 use std::collections::HashSet;
 use std::io;
 use std::path::Path;
@@ -12,6 +14,7 @@ pub struct TreeItem {
     pub expanded: bool,
 }
 
+#[allow(dead_code)]
 pub fn generate_tree_items(file_paths: &[String]) -> Vec<TreeItem> {
     let mut dirs_set = HashSet::new();
 

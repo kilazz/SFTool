@@ -1,12 +1,17 @@
+// src/lua/mod.rs
+
 pub mod sf1;
 pub mod sf2;
 pub mod sf2_api;
+pub mod sql;
 
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
 pub use sf2_api::LuaApiItem;
+#[allow(unused_imports)]
+pub use sql::*;
 
 /// Inspects the header of a file to detect whether it is compiled Lua bytecode
 /// and identifies the engine version based on byte offset 4.

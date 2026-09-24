@@ -23,7 +23,14 @@ export component EditorTab inherits HorizontalLayout {
     in-out property <string> editor_asset_source: "";
     in-out property <string> editor_filter: "";
     in-out property <string> editor_active_category: "2D Gfx Items (0x07DC)";
-    in-out property <[string]> available_categories: ["2D Gfx Items (0x07DC)", "Spells Mapping (0x07E2)", "Localized Strings"];
+    in-out property <[string]> available_categories: [
+        "2D Gfx Items (0x07DC)",
+        "Spells Mapping (0x07E2)",
+        "Weapon Stats (0x07DF)",
+        "Units Master (0x07E8)",
+        "Unit Loot Tables (0x07F8)",
+        "Localized Strings"
+    ];
     in-out property <string> editor_lang_filter: "All Languages";
     in-out property <[string]> available_languages: [
         "All Languages",
@@ -674,7 +681,7 @@ export component EditorTab inherits HorizontalLayout {
             // FIELDS FORM
             FormRow {
                 title: "Record Key / ID:";
-                label-width: 130px;
+                label-width: 140px;
                 LineEdit {
                     text <=> root.editor_field_id;
                     read-only: true;
@@ -701,8 +708,11 @@ export component EditorTab inherits HorizontalLayout {
             }
 
             if root.editor_active_category != "Localized Strings": FormRow {
-                title: (root.editor_active_category == "2D Gfx Items (0x07DC)" || root.editor_active_category == "Visual Meshes (0x2335)" || root.editor_active_category == "Abilities (0x234E)") ? "Mesh / Icon Asset:" : "Target / Scroll ID:";
-                label-width: 130px;
+                title: (root.editor_active_category == "2D Gfx Items (0x07DC)" || root.editor_active_category == "Visual Meshes (0x2335)" || root.editor_active_category == "Abilities (0x234E)") ? "Mesh / Icon Asset:" :
+                    (root.editor_active_category == "Weapon Stats (0x07DF)") ? "Damage (Min-Max):" :
+                    (root.editor_active_category == "Units Master (0x07E8)") ? "XP Gain:" :
+                    (root.editor_active_category == "Unit Loot Tables (0x07F8)") ? "Loot Items (1, 2, 3):" : "Target / Scroll ID:";
+                label-width: 140px;
                 LineEdit {
                     text <=> root.editor_field_val1;
                     font-family: "Consolas";
@@ -712,7 +722,7 @@ export component EditorTab inherits HorizontalLayout {
 
             FormRow {
                 title: "Extra / Parameters:";
-                label-width: 130px;
+                label-width: 140px;
                 LineEdit {
                     text <=> root.editor_field_val2;
                     font-family: "Consolas";

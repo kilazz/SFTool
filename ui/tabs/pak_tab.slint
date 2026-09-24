@@ -29,6 +29,7 @@ export component PakTab inherits HorizontalLayout {
     callback batch_unpack_pak(string);
     callback batch_pack_pak(string, string, int);
     callback archive_item_clicked(int);
+    callback load_archive_tree(string);
 
     spacing: 0px;
 
@@ -67,7 +68,12 @@ export component PakTab inherits HorizontalLayout {
                                     compact: true;
                                     width: 30px;
                                     height: 28px;
-                                    clicked => { root.selected_pak = root.browse_file("pak"); }
+                                    clicked => {
+                                        root.selected_pak = root.browse_file("pak");
+                                        if (root.selected_pak != "") {
+                                            root.load_archive_tree(root.selected_pak);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -82,6 +88,16 @@ export component PakTab inherits HorizontalLayout {
                                 clicked => {
                                     let out_p = root.browse_folder();
                                     if (out_p != "") { root.unpack_pak(root.selected_pak, out_p); }
+                                }
+                            }
+
+                            CustomButton {
+                                text: "🔍 Inspect VFS";
+                                enabled: root.selected_pak != "" || root.selected_folder != "";
+                                primary-color: #f0b132;
+                                clicked => {
+                                    let target = root.selected_pak != "" ? root.selected_pak : root.selected_folder;
+                                    if (target != "") { root.load_archive_tree(target); }
                                 }
                             }
 
@@ -118,7 +134,12 @@ export component PakTab inherits HorizontalLayout {
                                     compact: true;
                                     width: 30px;
                                     height: 28px;
-                                    clicked => { root.selected_folder = root.browse_folder(); }
+                                    clicked => {
+                                        root.selected_folder = root.browse_folder();
+                                        if (root.selected_folder != "") {
+                                            root.load_archive_tree(root.selected_folder);
+                                        }
+                                    }
                                 }
                             }
                         }

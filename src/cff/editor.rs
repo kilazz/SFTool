@@ -41,6 +41,9 @@ pub fn get_available_categories(cff_dir: &Path) -> Vec<String> {
     vec![
         "2D Gfx Items (0x07DC)".to_string(),
         "Spells Mapping (0x07E2)".to_string(),
+        "Weapon Stats (0x07DF)".to_string(),
+        "Units Master (0x07E8)".to_string(),
+        "Unit Loot Tables (0x07F8)".to_string(),
         "Localized Strings".to_string(),
     ]
 }
@@ -237,7 +240,12 @@ pub fn load_editor_items(
     filter: &str,
     lang_filter: &str,
 ) -> Vec<EditorItem> {
-    if category.contains("0x07DC") || category.contains("0x07E2") {
+    if category.contains("0x07DC")
+        || category.contains("0x07E2")
+        || category.contains("0x07DF")
+        || category.contains("0x07E8")
+        || category.contains("0x07F8")
+    {
         return load_sf1_items(cff_dir, category, filter);
     }
     if category.contains("0x2335") || category.contains("0x234E") || category.contains("0x2330") {
@@ -315,12 +323,17 @@ pub fn save_editor_item(
     index: usize,
     id_str: &str,
     val1: &str,
-    _val2: &str,
+    val2: &str,
 ) -> io::Result<()> {
-    if category.contains("0x07DC") || category.contains("0x07E2") {
-        return save_sf1_item(cff_dir, category, index, val1);
+    if category.contains("0x07DC")
+        || category.contains("0x07E2")
+        || category.contains("0x07DF")
+        || category.contains("0x07E8")
+        || category.contains("0x07F8")
+    {
+        return save_sf1_item(cff_dir, category, index, id_str, val1, val2);
     }
-    if category.contains("0x2335") || category.contains("0x234E") {
+    if category.contains("0x2335") || category.contains("0x234E") || category.contains("0x2330") {
         return save_sf2_item(cff_dir, category, index, val1);
     }
 
@@ -433,7 +446,6 @@ pub fn add_editor_item(cff_dir: &Path, category: &str) -> io::Result<String> {
             return Ok(new_id.to_string());
         }
     } else {
-        // Localized Strings: find Fixed566 chunk and allocate a block
         let mut target_f566_chunk = None;
         for chunk in &manifest.chunks {
             let p = cff_dir.join(&chunk.file);

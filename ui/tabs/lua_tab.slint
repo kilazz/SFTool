@@ -17,7 +17,7 @@ import {
 } from "../components/common.slint";
 
 export component LuaTab inherits HorizontalLayout {
-    in-out property <length> sidebar_width: 380px;
+    in-out property <length> sidebar_width: 420px;
 
     // Engine Mode: "SpellForce 1 (Lua 4.0)" vs "SpellForce 2 (Lua 5.0 GDS)"
     in-out property <string> lua_engine_mode: "SpellForce 1 (Lua 4.0)";
@@ -28,6 +28,23 @@ export component LuaTab inherits HorizontalLayout {
     in-out property <string> luadec_path: "luadec_32_deb.exe";
     in-out property <string> luac_path: "luac4.exe";
     in-out property <bool> lua_resume: true;
+
+    // SF1 SQL Visual Bindings State & Undo/Redo
+    in-out property <string> sql_file_path: "";
+    in-out property <string> sql_file_type: "sql_item.lua";
+    in-out property <[StandardListViewItem]> sql_entries: [];
+    in-out property <int> sql_selected_idx: -1;
+    in-out property <string> sql_field_id: "";
+    in-out property <string> sql_field_val1: "";
+    in-out property <string> sql_field_val2: "";
+    in-out property <string> sql_field_val3: "";
+    in-out property <string> sql_field_val4: "";
+    in-out property <string> sql_label_val1: "Male Cold Mesh:";
+    in-out property <string> sql_label_val2: "Female Cold Mesh:";
+    in-out property <string> sql_label_val3: "AnimSet:";
+    in-out property <string> sql_label_val4: "Selection Size:";
+    in-out property <bool> can_sql_undo: false;
+    in-out property <bool> can_sql_redo: false;
 
     // SF2 API Browser Properties
     in-out property <string> api_filter: "";
@@ -51,6 +68,14 @@ export component LuaTab inherits HorizontalLayout {
     callback decompile_lua(string, string, string, bool);
     callback check_lua_syntax(string, string);
     callback format_lua_scripts(string, bool);
+
+    // Callbacks: SpellForce 1 SQL Lua
+    callback load_sql_file(string, string);
+    callback select_sql_entry(int);
+    callback save_sql_entry(int, string, string, string, string);
+    callback write_sql_file(string, string);
+    callback sql_undo();
+    callback sql_redo();
 
     // Callbacks: SpellForce 2 Core
     callback check_lua_syntax_sf2(string, string);
@@ -178,11 +203,70 @@ export component LuaTab inherits HorizontalLayout {
                     spacing: 12px;
 
                     PanelSection {
+                        title: "Visual 3D Asset Bindings (script/sql_*.lua)";
+                        title-color: #f0b132;
+                        VerticalLayout {
+                            spacing: 6px;
+
+                            FormRow {
+                                title: "Binding Type:";
+                                label-width: 85px;
+                                ComboBox {
+                                    model: ["sql_item.lua", "sql_building.lua", "sql_object.lua", "sql_head.lua"];
+                                    current-value <=> root.sql_file_type;
+                                    height: 28px;
+                                }
+                            }
+
+                            FormRow {
+                                title: "SQL File:";
+                                label-width: 85px;
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    LineEdit {
+                                        text <=> root.sql_file_path;
+                                        placeholder-text: "Path to script/sql_*.lua...";
+                                        height: 28px;
+                                        font-family: "Consolas";
+                                        font-size: 11px;
+                                    }
+
+                                    CustomButton {
+                                        text: "...";
+                                        compact: true;
+                                        width: 30px;
+                                        height: 28px;
+                                        clicked => { root.sql_file_path = root.browse_file("lua"); }
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 6px;
+                                CustomButton {
+                                    text: "Load Visuals";
+                                    enabled: root.sql_file_path != "";
+                                    primary-color: #3e6a90;
+                                    clicked => { root.load_sql_file(root.sql_file_path, root.sql_file_type); }
+                                }
+
+                                CustomButton {
+                                    text: "Save to File";
+                                    enabled: root.sql_file_path != "";
+                                    primary-color: #23a55a;
+                                    clicked => { root.write_sql_file(root.sql_file_path, root.sql_file_type); }
+                                }
+                            }
+                        }
+                    }
+
+                    PanelSection {
                         title: "Batch Decompiler (Lua 4.0 Bytecode)";
                         VerticalLayout {
                             spacing: 6px;
                             FormRow {
                                 title: "Source:";
+                                label-width: 85px;
                                 HorizontalLayout {
                                     spacing: 4px;
                                     LineEdit {
@@ -205,6 +289,7 @@ export component LuaTab inherits HorizontalLayout {
 
                             FormRow {
                                 title: "Dest:";
+                                label-width: 85px;
                                 HorizontalLayout {
                                     spacing: 4px;
                                     LineEdit {
@@ -298,6 +383,7 @@ export component LuaTab inherits HorizontalLayout {
 
                             FormRow {
                                 title: "Scripts Dir:";
+                                label-width: 85px;
                                 HorizontalLayout {
                                     spacing: 4px;
                                     LineEdit {
@@ -358,7 +444,7 @@ export component LuaTab inherits HorizontalLayout {
             mouse-cursor: col-resize;
             moved => {
                 if self.pressed {
-                    root.sidebar_width = (root.sidebar_width + self.mouse-x - self.pressed-x).clamp(320px, 520px);
+                    root.sidebar_width = (root.sidebar_width + self.mouse-x - self.pressed-x).clamp(340px, 600px);
                 }
             }
         }
@@ -374,32 +460,191 @@ export component LuaTab inherits HorizontalLayout {
         clip: true;
 
         // ==========================================
-        // SF1 VIEW: LUA 4.0 SUBSYSTEM OVERVIEW
+        // SF1 VIEW: VISUAL SQL BINDINGS EDITOR
         // ==========================================
-        if root.lua_engine_mode == "SpellForce 1 (Lua 4.0)": VerticalLayout {
-            padding: 16px;
+        if root.lua_engine_mode == "SpellForce 1 (Lua 4.0)": HorizontalLayout {
+            padding: 12px;
             spacing: 12px;
 
-            SectionTitle {
-                text: "SpellForce 1 (Lua 4.0.1) Engine & Scripting Architecture";
-                text-color: #3e6a90;
-            }
-
-            Text {
-                text: "SpellForce 1 uses a customized, proprietary Lua 4.0.1 virtual machine modified by Phenomic in 2002-2003.\n\n" +
-                    "• Header Signature: Bytecode starts with '\\x1bLua' followed by version byte 0x40.\n" +
-                    "• Custom VM Opcodes: Phenomic added customized instruction sets for direct entity manipulation.\n" +
-                    "• Parallel Decompiler: Multi-threaded batch extraction using 'luadec_32_deb.exe'.\n" +
-                    "• Syntax Validation: Verifies syntax compatibility using 'luac4 -p'.\n" +
-                    "• Formatter: Normalizes sugar syntax and formats tab indentation matching original sources.\n\n" +
-                    "Switch the Engine Mode dropdown to 'SpellForce 2 (Lua 5.0 GDS)' to access the SF2 560+ function API explorer.";
-                color: #dcddde;
-                font-size: 12px;
-                wrap: word-wrap;
-            }
-
+            // Records List (Left)
             Rectangle {
-                vertical-stretch: 1;
+                width: 260px;
+                background: #111214;
+                border-color: #1f2023;
+                border-width: 1px;
+                border-radius: 4px;
+                clip: true;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 6px;
+
+                    Text {
+                        text: "Visual Entries (" + root.sql_entries.length + ")";
+                        color: #f0b132;
+                        font-size: 11px;
+                        font-weight: 700;
+                    }
+
+                    ListView {
+                        for item[index] in root.sql_entries: Rectangle {
+                            height: 26px;
+                            background: ta_sql.has-hover ? #393c41 : (root.sql_selected_idx == index ? #3e6a90 : (Math.mod(index, 2) == 0 ? #18191b : #141517));
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                Text {
+                                    text: item.text;
+                                    color: root.sql_selected_idx == index ? #ffffff : #dcddde;
+                                    font-family: "Consolas";
+                                    font-size: 11px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                            }
+
+                            ta_sql := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.sql_selected_idx = index;
+                                    root.select_sql_entry(index);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Entry Form Inspector (Right)
+            Rectangle {
+                horizontal-stretch: 1;
+                background: #18191b;
+                border-color: #353535;
+                border-width: 1px;
+                border-radius: 4px;
+
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+                    alignment: start;
+
+                    HorizontalLayout {
+                        alignment: space-between;
+
+                        SectionTitle {
+                            text: "Visual Asset Binding Inspector (" + root.sql_file_type + ")";
+                            text-color: #f0b132;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: end;
+
+                            CustomButton {
+                                text: "↶ Undo";
+                                compact: true;
+                                width: 65px;
+                                height: 24px;
+                                primary-color: #4e5058;
+                                enabled: root.can_sql_undo;
+                                clicked => { root.sql_undo(); }
+                            }
+
+                            CustomButton {
+                                text: "↷ Redo";
+                                compact: true;
+                                width: 65px;
+                                height: 24px;
+                                primary-color: #4e5058;
+                                enabled: root.can_sql_redo;
+                                clicked => { root.sql_redo(); }
+                            }
+                        }
+                    }
+
+                    FormRow {
+                        title: "Target ID:";
+                        label-width: 140px;
+                        LineEdit {
+                            text <=> root.sql_field_id;
+                            read-only: true;
+                            font-family: "Consolas";
+                            height: 28px;
+                        }
+                    }
+
+                    FormRow {
+                        title: root.sql_label_val1;
+                        label-width: 140px;
+                        LineEdit {
+                            text <=> root.sql_field_val1;
+                            font-family: "Consolas";
+                            height: 28px;
+                        }
+                    }
+
+                    FormRow {
+                        title: root.sql_label_val2;
+                        label-width: 140px;
+                        LineEdit {
+                            text <=> root.sql_field_val2;
+                            font-family: "Consolas";
+                            height: 28px;
+                        }
+                    }
+
+                    FormRow {
+                        title: root.sql_label_val3;
+                        label-width: 140px;
+                        LineEdit {
+                            text <=> root.sql_field_val3;
+                            font-family: "Consolas";
+                            height: 28px;
+                        }
+                    }
+
+                    FormRow {
+                        title: root.sql_label_val4;
+                        label-width: 140px;
+                        LineEdit {
+                            text <=> root.sql_field_val4;
+                            font-family: "Consolas";
+                            height: 28px;
+                        }
+                    }
+
+                    CustomButton {
+                        text: "Update In-Memory Entry";
+                        enabled: root.sql_selected_idx >= 0;
+                        primary-color: #23a55a;
+                        clicked => {
+                            root.save_sql_entry(
+                                root.sql_selected_idx,
+                                root.sql_field_val1,
+                                root.sql_field_val2,
+                                root.sql_field_val3,
+                                root.sql_field_val4);
+                        }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: #353535;
+                    }
+
+                    Text {
+                        text: "SpellForce 1 3D Mesh Binding Guide:\n" +
+                            "• GameData.cff only stores numerical attributes and stats.\n" +
+                            "• script/sql_item.lua assigns female and male visual body meshes (.msh).\n" +
+                            "• script/sql_building.lua links construction plans with composite model parts.\n" +
+                            "• script/sql_object.lua binds interactive chests, trees, and environmental objects.\n" +
+                            "• Use 'Save to File' in the left panel to compile modified tables back into Lua.\n" +
+                            "• Use ↶ Undo and ↷ Redo to revert or reapply changes made in the current session.";
+                        color: #808080;
+                        font-size: 11px;
+                        wrap: word-wrap;
+                    }
+                }
             }
         }
 
@@ -451,7 +696,7 @@ export component LuaTab inherits HorizontalLayout {
 
                 // 1. Functions List
                 Rectangle {
-                    width: 230px;
+                    width: 250px;
                     background: #111214;
                     border-color: #1f2023;
                     border-width: 1px;

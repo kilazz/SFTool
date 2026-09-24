@@ -1,3 +1,5 @@
+// src/pak/mod.rs
+
 pub mod sf1;
 pub mod sf2;
 pub mod vfs_tree;
@@ -218,7 +220,6 @@ pub fn batch_pack_folders(
     Ok(())
 }
 
-/// Reads a specific file directly from an SF1 or SF2 .PAK archive into memory on the fly.
 pub fn read_file_from_pak(
     pak_path: &Path,
     target_stem: &str,

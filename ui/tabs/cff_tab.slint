@@ -27,6 +27,7 @@ export component CffTab inherits HorizontalLayout {
     callback create_cff_diff(string, string, string);
     callback apply_cff_patch(string, string);
     callback archive_item_clicked(int);
+    callback load_archive_tree(string);
 
     spacing: 0px;
 
@@ -64,18 +65,38 @@ export component CffTab inherits HorizontalLayout {
                                     compact: true;
                                     width: 30px;
                                     height: 28px;
-                                    clicked => { root.selected_cff = root.browse_file("cff"); }
+                                    clicked => {
+                                        root.selected_cff = root.browse_file("cff");
+                                        if (root.selected_cff != "") {
+                                            root.load_archive_tree(root.selected_cff);
+                                        }
+                                    }
                                 }
                             }
                         }
 
-                        CustomButton {
-                            text: "Unpack Database & Text JSONs";
-                            enabled: root.selected_cff != "";
-                            primary-color: #3e6a90;
-                            clicked => {
-                                let out_p = root.browse_folder();
-                                if (out_p != "") { root.unpack_cff(root.selected_cff, out_p); }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            CustomButton {
+                                text: "Unpack Database & Text JSONs";
+                                enabled: root.selected_cff != "";
+                                primary-color: #3e6a90;
+                                clicked => {
+                                    let out_p = root.browse_folder();
+                                    if (out_p != "") { root.unpack_cff(root.selected_cff, out_p); }
+                                }
+                            }
+
+                            CustomButton {
+                                text: "🔍 Inspect";
+                                enabled: root.selected_cff != "" || root.selected_cff_dir != "";
+                                primary-color: #f0b132;
+                                compact: true;
+                                width: 80px;
+                                clicked => {
+                                    let target = root.selected_cff_dir != "" ? root.selected_cff_dir : root.selected_cff;
+                                    if (target != "") { root.load_archive_tree(target); }
+                                }
                             }
                         }
 
@@ -96,7 +117,12 @@ export component CffTab inherits HorizontalLayout {
                                     compact: true;
                                     width: 30px;
                                     height: 28px;
-                                    clicked => { root.selected_cff_dir = root.browse_folder(); }
+                                    clicked => {
+                                        root.selected_cff_dir = root.browse_folder();
+                                        if (root.selected_cff_dir != "") {
+                                            root.load_archive_tree(root.selected_cff_dir);
+                                        }
+                                    }
                                 }
                             }
                         }
