@@ -177,7 +177,7 @@ impl SpellEntry {
         match self.cast_target_faction {
             1 => "Enemy",
             2 => "Ally",
-            3 => "Other/Neutral",
+            3 => "Neutral/Any",
             _ => "Unknown",
         }
     }
@@ -187,8 +187,8 @@ impl SpellEntry {
             1 => "Figure",
             2 => "Building",
             3 => "Object",
-            4 => "In World",
-            5 => "In Area",
+            4 => "In World (Ground)",
+            5 => "In Area (Aura/AoE)",
             _ => "Unknown",
         }
     }
@@ -218,7 +218,7 @@ impl Sf1Record for SpellLineEntry {
         if bytes.len() < Self::STRIDE {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "Buffer too short for SpellLineEntry (expected 75 bytes)",
+                "Buffer too short",
             ));
         }
         let mut cur = Cursor::new(bytes);
@@ -254,7 +254,7 @@ impl Sf1Record for SpellLineEntry {
         if out.len() < Self::STRIDE {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "Buffer too short for SpellLineEntry (expected 75 bytes)",
+                "Buffer too short",
             ));
         }
         let mut cur = Cursor::new(out);
@@ -973,7 +973,7 @@ impl Sf1Record for TechTreeUpgradeEntry {
         if bytes.len() < Self::STRIDE {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "Buffer too short for TechTreeUpgradeEntry (expected 90 bytes)",
+                "Buffer too short",
             ));
         }
         let mut cur = Cursor::new(bytes);
@@ -1009,7 +1009,7 @@ impl Sf1Record for TechTreeUpgradeEntry {
         if out.len() < Self::STRIDE {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "Buffer too short for TechTreeUpgradeEntry (expected 90 bytes)",
+                "Buffer too short",
             ));
         }
         let mut cur = Cursor::new(out);
@@ -1271,7 +1271,6 @@ impl Sf1Record for ObjectMasterEntry {
     }
 }
 
-#[allow(dead_code)]
 impl ObjectMasterEntry {
     pub fn blocks_terrain(&self) -> bool {
         (self.flags & 0x01) != 0

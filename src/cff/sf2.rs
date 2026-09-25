@@ -1,3 +1,5 @@
+// src/cff/sf2.rs
+
 use super::container::Manifest;
 use super::editor::EditorItem;
 use super::text::{decode_windows, encode_windows};
@@ -62,6 +64,14 @@ pub fn get_sf2_chunk_info(id: u32) -> Option<Sf2ChunkInfo> {
         }),
         _ => None,
     }
+}
+
+fn set_sf2_labels(slice: &[&str]) -> [String; 12] {
+    let mut labels: [String; 12] = Default::default();
+    for (i, &s) in slice.iter().take(12).enumerate() {
+        labels[i] = s.to_string();
+    }
+    labels
 }
 
 /// Extracts the clean, primary 3D mesh path from binary buffers containing composite model parts.
@@ -182,9 +192,12 @@ pub fn load_sf2_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                 items.push(EditorItem {
                     id_str: id.to_string(),
-                    val1: clean_mesh,
+                    val1: clean_mesh.clone(),
                     val2: format!("Record #{}", i),
+                    p1: clean_mesh,
+                    labels: set_sf2_labels(&["Mesh Asset Path:"]),
                     display,
+                    ..Default::default()
                 });
             }
         }
@@ -229,11 +242,16 @@ pub fn load_sf2_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
 
             let display = format!("Ability #{:<5} | {}", ability_id, display_text);
             if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
+                let script_desc = sanitize_display_text(&decode_windows(raw_slice), 120);
                 items.push(EditorItem {
                     id_str: ability_id.to_string(),
-                    val1: clean_icon,
-                    val2: sanitize_display_text(&decode_windows(raw_slice), 120),
+                    val1: clean_icon.clone(),
+                    val2: script_desc.clone(),
+                    p1: clean_icon,
+                    p2: script_desc,
+                    labels: set_sf2_labels(&["Ability Icon Asset:", "Description / Script:"]),
                     display,
+                    ..Default::default()
                 });
             }
         }
@@ -315,9 +333,20 @@ pub fn load_sf2_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: item_id.to_string(),
-                        val1: clean_mesh,
-                        val2: extra_info,
+                        val1: clean_mesh.clone(),
+                        val2: extra_info.clone(),
+                        p1: clean_mesh,
+                        p2: price.to_string(),
+                        p3: req_lvl.to_string(),
+                        p4: extra_info,
+                        labels: set_sf2_labels(&[
+                            "Visual Mesh / Icon:",
+                            "Gold Price:",
+                            "Required Level:",
+                            "Combat Attributes:",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }

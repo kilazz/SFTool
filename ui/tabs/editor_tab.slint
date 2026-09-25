@@ -16,6 +16,31 @@ import {
     FormRow,
 } from "../components/common.slint";
 
+component InspectorCell {
+    in property <string> label: "";
+    in-out property <string> value: "";
+    in property <bool> read-only: false;
+
+    VerticalLayout {
+        spacing: 3px;
+        Text {
+            text: root.label;
+            font-size: 11px;
+            font-weight: 600;
+            color: #949ba4;
+            overflow: elide;
+        }
+
+        LineEdit {
+            text <=> root.value;
+            read-only: root.read-only;
+            font-family: "Consolas";
+            font-size: 11px;
+            height: 28px;
+        }
+    }
+}
+
 export component EditorTab inherits HorizontalLayout {
     in-out property <length> sidebar_width: 460px;
 
@@ -68,6 +93,33 @@ export component EditorTab inherits HorizontalLayout {
     in-out property <string> editor_field_val1: "";
     in-out property <string> editor_field_val2: "";
 
+    // 12-field contextual inspector properties
+    in-out property <string> editor_field_p1: "";
+    in-out property <string> editor_field_p2: "";
+    in-out property <string> editor_field_p3: "";
+    in-out property <string> editor_field_p4: "";
+    in-out property <string> editor_field_p5: "";
+    in-out property <string> editor_field_p6: "";
+    in-out property <string> editor_field_p7: "";
+    in-out property <string> editor_field_p8: "";
+    in-out property <string> editor_field_p9: "";
+    in-out property <string> editor_field_p10: "";
+    in-out property <string> editor_field_p11: "";
+    in-out property <string> editor_field_p12: "";
+
+    in-out property <string> editor_label_p1: "";
+    in-out property <string> editor_label_p2: "";
+    in-out property <string> editor_label_p3: "";
+    in-out property <string> editor_label_p4: "";
+    in-out property <string> editor_label_p5: "";
+    in-out property <string> editor_label_p6: "";
+    in-out property <string> editor_label_p7: "";
+    in-out property <string> editor_label_p8: "";
+    in-out property <string> editor_label_p9: "";
+    in-out property <string> editor_label_p10: "";
+    in-out property <string> editor_label_p11: "";
+    in-out property <string> editor_label_p12: "";
+
     // Visual Previews & Dual Cards
     in-out property <image> preview_icon1;
     in-out property <image> preview_icon2;
@@ -90,7 +142,7 @@ export component EditorTab inherits HorizontalLayout {
 
     callback load_editor_data(string, string, string, string);
     callback select_editor_entry(int);
-    callback save_editor_entry(string, string, int, string, string, string);
+    callback save_editor_entry(string, string, int, [string]);
     callback add_editor_entry(string, string);
     callback duplicate_editor_entry(string, string, int, string);
     callback delete_editor_entry(string, string, int, string);
@@ -409,7 +461,7 @@ export component EditorTab inherits HorizontalLayout {
                         }
                     }
 
-                    // Adaptive Height Virtual List
+                    // Virtual List
                     Rectangle {
                         background: #111214;
                         border-color: #1f2023;
@@ -474,7 +526,7 @@ export component EditorTab inherits HorizontalLayout {
         }
     }
 
-    // RIGHT PANEL: VISUAL SHOWCASE & INSPECTOR
+    // RIGHT PANEL: CONTEXTUAL INSPECTOR & SHOWCASE
     Rectangle {
         horizontal-stretch: 1;
         background: #2b2d31;
@@ -483,316 +535,384 @@ export component EditorTab inherits HorizontalLayout {
         border-radius: 4px;
         clip: true;
 
-        VerticalLayout {
-            padding: 16px;
-            spacing: 12px;
-            alignment: start;
-
-            // Inspector Header with Undo / Redo / Discard Controls
-            HorizontalLayout {
-                alignment: space-between;
-
-                SectionTitle {
-                    text: "Entity Property & Visual Showcase";
-                    text-color: #f0b132;
-                    width: 250px;
-                }
-
-                HorizontalLayout {
-                    spacing: 6px;
-                    alignment: end;
-
-                    CustomButton {
-                        text: "↶ Undo";
-                        compact: true;
-                        width: 65px;
-                        height: 24px;
-                        primary-color: #4e5058;
-                        enabled: root.can_undo;
-                        clicked => { root.editor_undo(); }
-                    }
-
-                    CustomButton {
-                        text: "↷ Redo";
-                        compact: true;
-                        width: 65px;
-                        height: 24px;
-                        primary-color: #4e5058;
-                        enabled: root.can_redo;
-                        clicked => { root.editor_redo(); }
-                    }
-
-                    CustomButton {
-                        text: "↺ Discard";
-                        compact: true;
-                        width: 70px;
-                        height: 24px;
-                        primary-color: #353535;
-                        enabled: root.editor_selected_idx >= 0;
-                        clicked => {
-                            root.select_editor_entry(root.editor_selected_idx);
-                        }
-                    }
-                }
-            }
-
-            // A. DUAL CARDS FOR SPELLS MAPPING (0x07E2)
-            if root.editor_active_category == "Spells Mapping (0x07E2)": HorizontalLayout {
-                spacing: 12px;
-                alignment: center;
-                height: 125px;
-
-                // Left Card: Combat Spell
-                Rectangle {
-                    width: 180px;
-                    background: #18191b;
-                    border-color: #353535;
-                    border-width: 1px;
-                    border-radius: 6px;
-
-                    VerticalLayout {
-                        padding: 8px;
-                        spacing: 4px;
-                        alignment: center;
-
-                        Rectangle {
-                            width: 64px;
-                            height: 64px;
-                            background: #111214;
-                            border-color: #e59535;
-                            border-width: 1px;
-                            border-radius: 4px;
-                            clip: true;
-
-                            Image {
-                                source: root.preview_icon1;
-                                width: 100%;
-                                height: 100%;
-                                image-fit: contain;
-                            }
-                        }
-
-                        Text {
-                            text: root.spell_name_disp != "" ? root.spell_name_disp : "Combat Spell";
-                            font-size: 11px;
-                            font-weight: 700;
-                            color: #f0b132;
-                            horizontal-alignment: center;
-                            overflow: elide;
-                        }
-
-                        Text {
-                            text: "Spell ID: " + root.editor_field_id;
-                            font-size: 10px;
-                            color: #808080;
-                            horizontal-alignment: center;
-                        }
-                    }
-                }
-
-                // Center Arrow Linkage
-                VerticalLayout {
-                    alignment: center;
-                    Text {
-                        text: "➔";
-                        font-size: 22px;
-                        font-weight: 700;
-                        color: #f0b132;
-                        vertical-alignment: center;
-                    }
-                }
-
-                // Right Card: Inventory Scroll
-                Rectangle {
-                    width: 180px;
-                    background: #18191b;
-                    border-color: #353535;
-                    border-width: 1px;
-                    border-radius: 6px;
-
-                    VerticalLayout {
-                        padding: 8px;
-                        spacing: 4px;
-                        alignment: center;
-
-                        Rectangle {
-                            width: 64px;
-                            height: 64px;
-                            background: #111214;
-                            border-color: #3e6a90;
-                            border-width: 1px;
-                            border-radius: 4px;
-                            clip: true;
-
-                            Image {
-                                source: root.preview_icon2;
-                                width: 100%;
-                                height: 100%;
-                                image-fit: contain;
-                            }
-                        }
-
-                        Text {
-                            text: root.scroll_name_disp != "" ? root.scroll_name_disp : "Inventory Scroll";
-                            font-size: 11px;
-                            font-weight: 700;
-                            color: #3e6a90;
-                            horizontal-alignment: center;
-                            overflow: elide;
-                        }
-
-                        Text {
-                            text: "Scroll ID: " + root.editor_field_val1;
-                            font-size: 10px;
-                            color: #808080;
-                            horizontal-alignment: center;
-                        }
-                    }
-                }
-            }
-
-            // B. SINGLE LIVE PREVIEW SHOWCASE FOR 2D / 3D GFX ITEMS, SPELL LINES, TECH UPGRADES & ABILITIES
-            if root.editor_active_category != "Spells Mapping (0x07E2)" && root.editor_active_category != "Localized Strings": HorizontalLayout {
+        ScrollView {
+            VerticalLayout {
+                padding: 16px;
                 spacing: 12px;
                 alignment: start;
-                height: 96px;
+
+                // Header with Undo / Redo / Discard Controls
+                HorizontalLayout {
+                    alignment: space-between;
+
+                    SectionTitle {
+                        text: "Entity Inspector & Live Showcase";
+                        text-color: #f0b132;
+                        width: 260px;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: end;
+
+                        CustomButton {
+                            text: "↶ Undo";
+                            compact: true;
+                            width: 65px;
+                            height: 24px;
+                            primary-color: #4e5058;
+                            enabled: root.can_undo;
+                            clicked => { root.editor_undo(); }
+                        }
+
+                        CustomButton {
+                            text: "↷ Redo";
+                            compact: true;
+                            width: 65px;
+                            height: 24px;
+                            primary-color: #4e5058;
+                            enabled: root.can_redo;
+                            clicked => { root.editor_redo(); }
+                        }
+
+                        CustomButton {
+                            text: "↺ Discard";
+                            compact: true;
+                            width: 70px;
+                            height: 24px;
+                            primary-color: #353535;
+                            enabled: root.editor_selected_idx >= 0;
+                            clicked => {
+                                root.select_editor_entry(root.editor_selected_idx);
+                            }
+                        }
+                    }
+                }
+
+                // A. DUAL CARDS FOR SPELLS MAPPING (0x07E2)
+                if root.editor_active_category == "Spells Mapping (0x07E2)": HorizontalLayout {
+                    spacing: 12px;
+                    alignment: center;
+                    height: 125px;
+
+                    Rectangle {
+                        width: 180px;
+                        background: #18191b;
+                        border-color: #353535;
+                        border-width: 1px;
+                        border-radius: 6px;
+
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 4px;
+                            alignment: center;
+
+                            Rectangle {
+                                width: 64px;
+                                height: 64px;
+                                background: #111214;
+                                border-color: #e59535;
+                                border-width: 1px;
+                                border-radius: 4px;
+                                clip: true;
+
+                                Image {
+                                    source: root.preview_icon1;
+                                    width: 100%;
+                                    height: 100%;
+                                    image-fit: contain;
+                                }
+                            }
+
+                            Text {
+                                text: root.spell_name_disp != "" ? root.spell_name_disp : "Combat Spell";
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: #f0b132;
+                                horizontal-alignment: center;
+                                overflow: elide;
+                            }
+
+                            Text {
+                                text: "Spell ID: " + root.editor_field_id;
+                                font-size: 10px;
+                                color: #808080;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: "➔";
+                            font-size: 22px;
+                            font-weight: 700;
+                            color: #f0b132;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    Rectangle {
+                        width: 180px;
+                        background: #18191b;
+                        border-color: #353535;
+                        border-width: 1px;
+                        border-radius: 6px;
+
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 4px;
+                            alignment: center;
+
+                            Rectangle {
+                                width: 64px;
+                                height: 64px;
+                                background: #111214;
+                                border-color: #3e6a90;
+                                border-width: 1px;
+                                border-radius: 4px;
+                                clip: true;
+
+                                Image {
+                                    source: root.preview_icon2;
+                                    width: 100%;
+                                    height: 100%;
+                                    image-fit: contain;
+                                }
+                            }
+
+                            Text {
+                                text: root.scroll_name_disp != "" ? root.scroll_name_disp : "Inventory Scroll";
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: #3e6a90;
+                                horizontal-alignment: center;
+                                overflow: elide;
+                            }
+
+                            Text {
+                                text: "Scroll ID: " + root.editor_field_val1;
+                                font-size: 10px;
+                                color: #808080;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                // B. LIVE PREVIEW FOR ICONS & ASSETS
+                if root.editor_active_category != "Spells Mapping (0x07E2)" && root.editor_active_category != "Localized Strings": HorizontalLayout {
+                    spacing: 12px;
+                    alignment: start;
+                    height: 84px;
+
+                    Rectangle {
+                        width: 84px;
+                        height: 84px;
+                        background: #111214;
+                        border-color: #f0b132;
+                        border-width: 1.5px;
+                        border-radius: 6px;
+                        clip: true;
+
+                        Image {
+                            source: root.preview_icon1;
+                            width: 100%;
+                            height: 100%;
+                            image-fit: contain;
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        alignment: center;
+
+                        Text {
+                            text: root.editor_active_category;
+                            font-size: 12px;
+                            font-weight: 700;
+                            color: #f0b132;
+                        }
+
+                        Text {
+                            text: root.asset_status_text;
+                            font-size: 11px;
+                            font-family: "Consolas";
+                            color: #dcddde;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
 
                 Rectangle {
-                    width: 96px;
-                    height: 96px;
-                    background: #111214;
-                    border-color: #f0b132;
-                    border-width: 1.5px;
-                    border-radius: 6px;
-                    clip: true;
-
-                    Image {
-                        source: root.preview_icon1;
-                        width: 100%;
-                        height: 100%;
-                        image-fit: contain;
-                    }
+                    height: 1px;
+                    background: #353535;
                 }
 
-                VerticalLayout {
-                    spacing: 4px;
-                    alignment: center;
-
-                    Text {
-                        text: "Texture Asset Status:";
-                        font-size: 11px;
-                        font-weight: 700;
-                        color: #949ba4;
-                    }
-
-                    Text {
-                        text: root.asset_status_text;
-                        font-size: 11px;
+                // PRIMARY RECORD KEY / ID
+                FormRow {
+                    title: "Record Key / ID:";
+                    label-width: 130px;
+                    LineEdit {
+                        text <=> root.editor_field_id;
+                        read-only: true;
                         font-family: "Consolas";
-                        color: #dcddde;
-                        wrap: word-wrap;
+                        height: 28px;
                     }
                 }
-            }
 
-            Rectangle {
-                height: 1px;
-                background: #353535;
-            }
+                // VIEW A: MULTILINE LOCALIZED STRING EDITOR
+                if root.editor_active_category == "Localized Strings": VerticalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: "Localized Phrase Content:";
+                        font-size: 11px;
+                        color: #dcddde;
+                        font-weight: 600;
+                    }
 
-            // FIELDS FORM
-            FormRow {
-                title: "Record Key / ID:";
-                label-width: 140px;
-                LineEdit {
-                    text <=> root.editor_field_id;
-                    read-only: true;
-                    font-family: "Consolas";
-                    height: 28px;
+                    TextEdit {
+                        text <=> root.editor_field_val1;
+                        font-family: "Consolas";
+                        font-size: 12px;
+                        height: 180px;
+                        wrap: TextWrap.word-wrap;
+                    }
+
+                    Text {
+                        text: root.editor_field_val2;
+                        font-family: "Consolas";
+                        font-size: 11px;
+                        color: #808080;
+                    }
                 }
-            }
 
-            if root.editor_active_category == "Localized Strings": VerticalLayout {
-                spacing: 4px;
+                // VIEW B: DYNAMIC TWO-COLUMN STRUCTURED INSPECTOR (P1..P12)
+                if root.editor_active_category != "Localized Strings": HorizontalLayout {
+                    spacing: 12px;
+
+                    // Column 1 (Odds: P1, P3, P5, P7, P9, P11)
+                    VerticalLayout {
+                        spacing: 8px;
+                        horizontal-stretch: 1;
+
+                        if root.editor_label_p1 != "": InspectorCell {
+                            label: root.editor_label_p1;
+                            value <=> root.editor_field_p1;
+                        }
+
+                        if root.editor_label_p3 != "": InspectorCell {
+                            label: root.editor_label_p3;
+                            value <=> root.editor_field_p3;
+                        }
+
+                        if root.editor_label_p5 != "": InspectorCell {
+                            label: root.editor_label_p5;
+                            value <=> root.editor_field_p5;
+                        }
+
+                        if root.editor_label_p7 != "": InspectorCell {
+                            label: root.editor_label_p7;
+                            value <=> root.editor_field_p7;
+                            read-only: root.editor_active_category == "Unit Loot Tables (0x07F8)" || root.editor_active_category == "Chest Loot Tables (0x0811)";
+                        }
+
+                        if root.editor_label_p9 != "": InspectorCell {
+                            label: root.editor_label_p9;
+                            value <=> root.editor_field_p9;
+                            read-only: root.editor_active_category == "Unit Loot Tables (0x07F8)" || root.editor_active_category == "Chest Loot Tables (0x0811)";
+                        }
+
+                        if root.editor_label_p11 != "": InspectorCell {
+                            label: root.editor_label_p11;
+                            value <=> root.editor_field_p11;
+                        }
+                    }
+
+                    // Column 2 (Evens: P2, P4, P6, P8, P10, P12)
+                    VerticalLayout {
+                        spacing: 8px;
+                        horizontal-stretch: 1;
+
+                        if root.editor_label_p2 != "": InspectorCell {
+                            label: root.editor_label_p2;
+                            value <=> root.editor_field_p2;
+                        }
+
+                        if root.editor_label_p4 != "": InspectorCell {
+                            label: root.editor_label_p4;
+                            value <=> root.editor_field_p4;
+                            read-only: root.editor_active_category == "Weapon Stats (0x07DF)";
+                        }
+
+                        if root.editor_label_p6 != "": InspectorCell {
+                            label: root.editor_label_p6;
+                            value <=> root.editor_field_p6;
+                        }
+
+                        if root.editor_label_p8 != "": InspectorCell {
+                            label: root.editor_label_p8;
+                            value <=> root.editor_field_p8;
+                            read-only: root.editor_active_category == "Unit Loot Tables (0x07F8)" || root.editor_active_category == "Chest Loot Tables (0x0811)";
+                        }
+
+                        if root.editor_label_p10 != "": InspectorCell {
+                            label: root.editor_label_p10;
+                            value <=> root.editor_field_p10;
+                        }
+
+                        if root.editor_label_p12 != "": InspectorCell {
+                            label: root.editor_label_p12;
+                            value <=> root.editor_field_p12;
+                        }
+                    }
+                }
+
+                CustomButton {
+                    text: "Save Record Changes to Chunk (.dat)";
+                    enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "" && root.editor_active_category != "Object Collision (0x0809)" && root.editor_active_category != "Building Collision (0x07EE)";
+                    primary-color: #23a55a;
+                    height: 32px;
+                    clicked => {
+                        root.save_editor_entry(
+                            root.editor_cff_dir,
+                            root.editor_active_category,
+                            root.editor_selected_idx,
+                            [
+                            root.editor_field_id,
+                            root.editor_field_p1,
+                            root.editor_field_p2,
+                            root.editor_field_p3,
+                            root.editor_field_p4,
+                            root.editor_field_p5,
+                            root.editor_field_p6,
+                            root.editor_field_p7,
+                            root.editor_field_p8,
+                            root.editor_field_p9,
+                            root.editor_field_p10,
+                            root.editor_field_p11,
+                            root.editor_field_p12,
+                            root.editor_field_val1
+                        ]);
+                    }
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: #353535;
+                }
+
                 Text {
-                    text: "Localized Text Content:";
+                    text: "Structured Studio Inspector Guide:\n" +
+                        "• Dedicated Field Inputs: All attributes, costs, and combat curves are cleanly isolated into dedicated parameters.\n" +
+                        "• Weapon DPS & Loot Odds: Live dynamic calculator instantly derives DPS and cascading chest chances.\n" +
+                        "• RTS Research Costs: Edit tech tree upgrades with isolated resource amounts across all 7 game goods.\n" +
+                        "• ↶ Undo / ↷ Redo: Safely revert or reapply changes made during the current editing session.";
+                    color: #808080;
                     font-size: 11px;
-                    color: #dcddde;
+                    wrap: word-wrap;
                 }
-
-                TextEdit {
-                    text <=> root.editor_field_val1;
-                    font-family: "Consolas";
-                    font-size: 12px;
-                    height: 140px;
-                    wrap: TextWrap.word-wrap;
-                }
-            }
-
-            if root.editor_active_category != "Localized Strings": FormRow {
-                title: (root.editor_active_category == "2D Gfx Items (0x07DC)" || root.editor_active_category == "Visual Meshes (0x2335)" || root.editor_active_category == "Abilities (0x234E)" || root.editor_active_category == "Spell Lines (0x0806)" || root.editor_active_category == "Tech Tree Upgrades (0x07F4)") ? "Mesh / Icon Asset:" :
-                    (root.editor_active_category == "Weapon Stats (0x07DF)") ? "Damage (Min-Max):" :
-                    (root.editor_active_category == "Units Master (0x07E8)") ? "XP Gain:" :
-                    (root.editor_active_category == "Unit Loot Tables (0x07F8)" || root.editor_active_category == "Chest Loot Tables (0x0811)") ? "Loot Items (1, 2, 3):" :
-                    (root.editor_active_category == "Spells Master (0x07D2)") ? "Mana, Cast & CD:" :
-                    (root.editor_active_category == "Items Master (0x07D3)") ? "Buy & Sell Prices:" :
-                    (root.editor_active_category == "Item Modifiers (0x07D4)") ? "Attributes & Armor:" :
-                    (root.editor_active_category == "Unit Stats (0x07D5)") ? "Level & Race:" :
-                    (root.editor_active_category == "Races (0x07E6)") ? "Aggro & Morale:" :
-                    (root.editor_active_category == "Buildings Master (0x07ED)") ? "Health & Slots:" :
-                    (root.editor_active_category == "Level Progression (0x0800)") ? "XP Required:" :
-                    (root.editor_active_category == "Objects Master (0x0802)") ? "Resource Amount:" :
-                    (root.editor_active_category == "Object Collision (0x0809)" || root.editor_active_category == "Building Collision (0x07EE)") ? "Vertex Count:" :
-                    "Target / Scroll ID:";
-                label-width: 140px;
-                LineEdit {
-                    text <=> root.editor_field_val1;
-                    font-family: "Consolas";
-                    height: 28px;
-                }
-            }
-
-            FormRow {
-                title: "Extra / Parameters:";
-                label-width: 140px;
-                LineEdit {
-                    text <=> root.editor_field_val2;
-                    font-family: "Consolas";
-                    height: 28px;
-                }
-            }
-
-            CustomButton {
-                text: "Save Changes to Database Chunk (.dat)";
-                enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "" && root.editor_active_category != "Object Collision (0x0809)" && root.editor_active_category != "Building Collision (0x07EE)";
-                primary-color: #23a55a;
-                height: 32px;
-                clicked => {
-                    root.save_editor_entry(
-                        root.editor_cff_dir,
-                        root.editor_active_category,
-                        root.editor_selected_idx,
-                        root.editor_field_id,
-                        root.editor_field_val1,
-                        root.editor_field_val2);
-                }
-            }
-
-            Rectangle {
-                height: 1px;
-                background: #353535;
-            }
-
-            Text {
-                text: "Live Visual Preview & Database Modding Guide:\n" +
-                    "• Asset Source: Select a .pak file or folder to stream DDS/TGA textures directly on the fly.\n" +
-                    "• Phenomic VFS Layering: Automatically mounts archives in reverse order (sf35.pak -> sf0.pak).\n" +
-                    "• Spells & Tech Upgrades: Full live rendering for spells, spell line trees, and RTS building research.\n" +
-                    "• Exact Architecture: 100% verified binary strides for all 49 game database chunks.\n" +
-                    "• ↶ Undo / ↷ Redo: Safely revert or reapply changes made during the current editing session.";
-                color: #808080;
-                font-size: 12px;
-                wrap: word-wrap;
             }
         }
     }

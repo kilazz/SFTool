@@ -3,7 +3,7 @@
 use crate::AppWindow;
 use crate::cff;
 use crate::logger::UiLogger;
-use slint::{ComponentHandle, Image, ModelRc, SharedString, StandardListViewItem, VecModel};
+use slint::{ComponentHandle, Image, Model, ModelRc, SharedString, StandardListViewItem, VecModel};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -16,11 +16,7 @@ struct HistoryItem {
     cff_dir: PathBuf,
     category: String,
     idx: usize,
-    id_str: String,
-    val1_before: String,
-    val2_before: String,
-    val1_after: String,
-    val2_after: String,
+    saved_fields: Vec<String>,
 }
 
 struct PreviewTask {
@@ -37,22 +33,19 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
     let redo_stack = Arc::new(Mutex::new(Vec::<HistoryItem>::new()));
     let items_cache = Arc::new(Mutex::new(Vec::<cff::EditorItem>::new()));
 
-    // Dedicated debounced worker channel for texture and asset previews
     let (preview_tx, preview_rx) = mpsc::channel::<PreviewTask>();
     let preview_generation = Arc::new(AtomicU64::new(0));
 
     let preview_gen_worker = preview_generation.clone();
     let ui_w_worker = ui.as_weak();
 
-    // Single long-lived worker thread to process texture decoding
+    // Background thread for texture preview decoding
     thread::spawn(move || {
         while let Ok(mut task) = preview_rx.recv() {
-            // Coalesce rapid requests: if more tasks are queued, skip directly to the latest
             while let Ok(newer) = preview_rx.try_recv() {
                 task = newer;
             }
 
-            // Discard task if already superseded by a newer selection
             if task.generation != preview_gen_worker.load(Ordering::SeqCst) {
                 continue;
             }
@@ -148,7 +141,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         });
     });
 
-    // 2. Select entry (Debounced via generation counter and worker channel)
+    // 2. Select entry
     let ui_weak_sel = ui.as_weak();
     let cache_sel = items_cache.clone();
     let p_gen_sel = preview_generation.clone();
@@ -157,7 +150,6 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
     ui.on_select_editor_entry(move |idx| {
         let cache = cache_sel.lock().unwrap();
         if let Some(item) = cache.get(idx as usize) {
-            // Guard against selecting the pagination/informational footer banner
             if item.id_str.is_empty() {
                 return;
             }
@@ -165,6 +157,19 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
             let id = item.id_str.clone();
             let val1 = item.val1.clone();
             let val2 = item.val2.clone();
+            let p1 = item.p1.clone();
+            let p2 = item.p2.clone();
+            let p3 = item.p3.clone();
+            let p4 = item.p4.clone();
+            let p5 = item.p5.clone();
+            let p6 = item.p6.clone();
+            let p7 = item.p7.clone();
+            let p8 = item.p8.clone();
+            let p9 = item.p9.clone();
+            let p10 = item.p10.clone();
+            let p11 = item.p11.clone();
+            let p12 = item.p12.clone();
+            let l = item.labels.clone();
             drop(cache);
 
             let task_gen = p_gen_sel.fetch_add(1, Ordering::SeqCst) + 1;
@@ -174,6 +179,32 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
                 ui.set_editor_field_id(id.clone().into());
                 ui.set_editor_field_val1(val1.clone().into());
                 ui.set_editor_field_val2(val2.into());
+
+                ui.set_editor_field_p1(p1.into());
+                ui.set_editor_field_p2(p2.into());
+                ui.set_editor_field_p3(p3.into());
+                ui.set_editor_field_p4(p4.into());
+                ui.set_editor_field_p5(p5.into());
+                ui.set_editor_field_p6(p6.into());
+                ui.set_editor_field_p7(p7.into());
+                ui.set_editor_field_p8(p8.into());
+                ui.set_editor_field_p9(p9.into());
+                ui.set_editor_field_p10(p10.into());
+                ui.set_editor_field_p11(p11.into());
+                ui.set_editor_field_p12(p12.into());
+
+                ui.set_editor_label_p1(l[0].clone().into());
+                ui.set_editor_label_p2(l[1].clone().into());
+                ui.set_editor_label_p3(l[2].clone().into());
+                ui.set_editor_label_p4(l[3].clone().into());
+                ui.set_editor_label_p5(l[4].clone().into());
+                ui.set_editor_label_p6(l[5].clone().into());
+                ui.set_editor_label_p7(l[6].clone().into());
+                ui.set_editor_label_p8(l[7].clone().into());
+                ui.set_editor_label_p9(l[8].clone().into());
+                ui.set_editor_label_p10(l[9].clone().into());
+                ui.set_editor_label_p11(l[10].clone().into());
+                ui.set_editor_label_p12(l[11].clone().into());
 
                 let cat = ui.get_editor_active_category().to_string();
                 let dir = PathBuf::from(ui.get_editor_cff_dir().as_str());
@@ -194,52 +225,37 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
     // 3. Save entry
     let u_save = undo_stack.clone();
     let r_save = redo_stack.clone();
-    let cache_save = items_cache;
     let log_save = logger.clone();
     let ui_w_save = ui.as_weak();
-    ui.on_save_editor_entry(move |cff_dir, cat, idx, id, v1, v2| {
+    ui.on_save_editor_entry(move |cff_dir, cat, idx, fields_model| {
         let dir = PathBuf::from(cff_dir.as_str());
         let c = cat.to_string();
         let log = log_save.clone();
         let ui_w = ui_w_save.clone();
-        let (old_v1, old_v2) = cache_save
-            .lock()
-            .unwrap()
-            .get(idx as usize)
-            .map(|it| (it.val1.clone(), it.val2.clone()))
-            .unwrap_or_default();
 
+        let fields: Vec<String> = fields_model.iter().map(|s| s.to_string()).collect();
         let u_stack = u_save.clone();
         let r_stack = r_save.clone();
-        let v1_s = v1.to_string();
-        let v2_s = v2.to_string();
-        let id_s = id.to_string();
 
         thread::spawn(move || {
-            if let Err(e) = cff::save_editor_item(&dir, &c, idx as usize, &id_s, &v1_s, &v2_s) {
+            if let Err(e) = cff::save_editor_item(&dir, &c, idx as usize, &fields) {
                 log.log(&format!("[!] Editor Save Error: {}", e));
             } else {
-                log.log(&format!("[+] Saved entry: {}", id_s));
-                if old_v1 != v1_s || old_v2 != v2_s {
-                    u_stack.lock().unwrap().push(HistoryItem {
-                        cff_dir: dir,
-                        category: c,
-                        idx: idx as usize,
-                        id_str: id_s,
-                        val1_before: old_v1,
-                        val2_before: old_v2,
-                        val1_after: v1_s,
-                        val2_after: v2_s,
-                    });
-                    r_stack.lock().unwrap().clear();
-                }
+                log.log(&format!("[+] Saved entry: {:?}", fields.first()));
+                u_stack.lock().unwrap().push(HistoryItem {
+                    cff_dir: dir,
+                    category: c,
+                    idx: idx as usize,
+                    saved_fields: fields,
+                });
+                r_stack.lock().unwrap().clear();
 
                 let can_u = !u_stack.lock().unwrap().is_empty();
                 let can_r = !r_stack.lock().unwrap().is_empty();
                 let _ = ui_w.upgrade_in_event_loop(move |ui| {
                     ui.set_can_undo(can_u);
                     ui.set_can_redo(can_r);
-                    ui.set_status_msg("Saved changes to chunk.".into());
+                    ui.set_status_msg("Saved record changes to chunk.".into());
                 });
             }
         });
@@ -261,19 +277,15 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
                     &item.cff_dir,
                     &item.category,
                     item.idx,
-                    &item.id_str,
-                    &item.val1_before,
-                    &item.val2_before,
+                    &item.saved_fields,
                 ) {
-                    log.log(&format!("[*] Undo: {}", item.id_str));
+                    log.log("[*] Reverted last change (Undo).");
                     r_s.lock().unwrap().push(item.clone());
                     let can_u = !u_s.lock().unwrap().is_empty();
                     let can_r = !r_s.lock().unwrap().is_empty();
                     let _ = ui_w.upgrade_in_event_loop(move |ui| {
                         ui.set_can_undo(can_u);
                         ui.set_can_redo(can_r);
-                        ui.set_editor_field_val1(item.val1_before.into());
-                        ui.set_editor_field_val2(item.val2_before.into());
                     });
                 }
             });
@@ -296,19 +308,15 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
                     &item.cff_dir,
                     &item.category,
                     item.idx,
-                    &item.id_str,
-                    &item.val1_after,
-                    &item.val2_after,
+                    &item.saved_fields,
                 ) {
-                    log.log(&format!("[*] Redo: {}", item.id_str));
+                    log.log("[*] Reapplied change (Redo).");
                     u_s.lock().unwrap().push(item.clone());
                     let can_u = !u_s.lock().unwrap().is_empty();
                     let can_r = !r_s.lock().unwrap().is_empty();
                     let _ = ui_w.upgrade_in_event_loop(move |ui| {
                         ui.set_can_undo(can_u);
                         ui.set_can_redo(can_r);
-                        ui.set_editor_field_val1(item.val1_after.into());
-                        ui.set_editor_field_val2(item.val2_after.into());
                     });
                 }
             });

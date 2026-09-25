@@ -11,11 +11,24 @@ use std::fs;
 use std::io::{self, Cursor};
 use std::path::{Path, PathBuf};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct EditorItem {
     pub id_str: String,
     pub val1: String,
     pub val2: String,
+    pub p1: String,
+    pub p2: String,
+    pub p3: String,
+    pub p4: String,
+    pub p5: String,
+    pub p6: String,
+    pub p7: String,
+    pub p8: String,
+    pub p9: String,
+    pub p10: String,
+    pub p11: String,
+    pub p12: String,
+    pub labels: [String; 12],
     pub display: String,
 }
 
@@ -264,7 +277,6 @@ pub fn load_editor_items(
         return load_sf1_items(cff_dir, category, filter);
     }
 
-    // Localized Strings loader with pagination limit to prevent Slint UI lag
     const MAX_UNFILTERED_ITEMS: usize = 1000;
     let mut items = Vec::new();
     let filter_lower = filter.to_lowercase();
@@ -318,12 +330,13 @@ pub fn load_editor_items(
                         if items.len() < MAX_UNFILTERED_ITEMS {
                             items.push(EditorItem {
                                 id_str: format!("{}:{}", fname, k),
-                                val1: v,
+                                val1: v.clone(),
                                 val2: format!(
                                     "Slot: {} ({}){} | Base ID: {}",
                                     l_id, lang_tag, camp_str, b_id
                                 ),
                                 display,
+                                ..Default::default()
                             });
                         }
                     }
@@ -334,8 +347,6 @@ pub fn load_editor_items(
 
     if total_matches > MAX_UNFILTERED_ITEMS {
         items.push(EditorItem {
-            id_str: String::new(),
-            val1: String::new(),
             val2: format!(
                 "Displaying first {} of {} total entries.",
                 MAX_UNFILTERED_ITEMS, total_matches
@@ -344,6 +355,7 @@ pub fn load_editor_items(
                 "--- [Showing first {} of {} strings. Refine search filter to narrow results] ---",
                 MAX_UNFILTERED_ITEMS, total_matches
             ),
+            ..Default::default()
         });
     }
 
@@ -354,16 +366,19 @@ pub fn save_editor_item(
     cff_dir: &Path,
     category: &str,
     index: usize,
-    id_str: &str,
-    val1: &str,
-    val2: &str,
+    fields: &[String],
 ) -> io::Result<()> {
     if category.contains("0x2335") || category.contains("0x234E") || category.contains("0x2330") {
+        let val1 = fields.get(1).map(|s| s.as_str()).unwrap_or("");
         return save_sf2_item(cff_dir, category, index, val1);
     }
+
     if category != "Localized Strings" {
-        return save_sf1_item(cff_dir, category, index, id_str, val1, val2);
+        return save_sf1_item(cff_dir, category, index, fields);
     }
+
+    let id_str = fields.first().map(|s| s.as_str()).unwrap_or("");
+    let val1 = fields.get(13).map(|s| s.as_str()).unwrap_or("");
 
     let parts: Vec<&str> = id_str.splitn(2, ':').collect();
     if parts.len() == 2 {

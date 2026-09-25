@@ -29,7 +29,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x07D2,
         name: "SpellsMaster",
-        stride: 76, // Verified: 76 bytes exact (4B cast & 4B recast ms)
+        stride: 76,
         default_c_type: 1,
         description: "Combat spells parameters (Cat 2002)",
     },
@@ -127,7 +127,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x07E8,
         name: "UnitsMaster",
-        stride: 64, // Verified: 23 bytes binary + 40 bytes name string + 1 byte flag
+        stride: 64,
         default_c_type: 1,
         description: "Unit database and XP (Cat 2024)",
     },
@@ -155,14 +155,14 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x07ED,
         name: "BuildingsMaster",
-        stride: 23, // Verified: 23 bytes exact
+        stride: 23,
         default_c_type: 1,
         description: "Building health & tech (Cat 2029)",
     },
     Sf1ChunkInfo {
         id: 0x07EE,
         name: "BuildingCollision",
-        stride: 0, // Dynamic length variable chunk
+        stride: 0,
         default_c_type: 1,
         description: "Collision polygons (Cat 2030)",
     },
@@ -183,7 +183,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x07F4,
         name: "TechTreeUpgrades",
-        stride: 90, // Verified: 90 bytes exact (64B icon + 7x resource costs)
+        stride: 90,
         default_c_type: 1,
         description: "Tech upgrades (Cat 2036)",
     },
@@ -197,7 +197,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x07F8,
         name: "UnitLootTables",
-        stride: 11, // Verified: 11 bytes cascading loot
+        stride: 11,
         default_c_type: 1,
         description: "Monster loot tables (Cat 2040)",
     },
@@ -246,7 +246,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x0802,
         name: "ObjectsMaster",
-        stride: 54, // Verified: 54 bytes exact (41 bytes category name buffer)
+        stride: 54,
         default_c_type: 1,
         description: "Interactive map props (Cat 2050)",
     },
@@ -267,35 +267,35 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x0805,
         name: "Portals",
-        stride: 13, // Verified: 13 bytes with NameID
+        stride: 13,
         default_c_type: 3,
         description: "World map portals (Cat 2053)",
     },
     Sf1ChunkInfo {
         id: 0x0806,
         name: "SpellLines",
-        stride: 75, // Verified: 75 bytes exact (64 bytes icon name buffer)
+        stride: 75,
         default_c_type: 1,
         description: "Magic schools lines (Cat 2054)",
     },
     Sf1ChunkInfo {
         id: 0x0807,
         name: "EngineConfigGlobal",
-        stride: 6, // Verified: chunk_39.dat
+        stride: 6,
         default_c_type: 1,
         description: "Global Engine Config (Cat 2055)",
     },
     Sf1ChunkInfo {
         id: 0x0808,
         name: "SpellLineRequirements",
-        stride: 6, // Verified: chunk_2.dat
+        stride: 6,
         default_c_type: 1,
         description: "Spell line tier prerequisites (Cat 2056)",
     },
     Sf1ChunkInfo {
         id: 0x0809,
         name: "ObjectCollision",
-        stride: 0, // Dynamic length variable chunk
+        stride: 0,
         default_c_type: 1,
         description: "Object Collision Polygons (Cat 2057)",
     },
@@ -316,7 +316,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x080D,
         name: "Quests",
-        stride: 17, // Verified: 17 bytes exact
+        stride: 17,
         default_c_type: 1,
         description: "Quests tree (Cat 2061)",
     },
@@ -344,7 +344,7 @@ pub const SF1_CATEGORY_TABLE: &[Sf1ChunkInfo] = &[
     Sf1ChunkInfo {
         id: 0x0811,
         name: "ObjectLootTables",
-        stride: 11, // Verified: 11 bytes cascading loot
+        stride: 11,
         default_c_type: 1,
         description: "Chest loot tables (Cat 2065)",
     },
@@ -372,32 +372,13 @@ pub fn describe_category(id: u32) -> Option<&'static str> {
     get_sf1_chunk_info(id).map(|i| i.description)
 }
 
-fn parse_numeric_key_u16(source: &str, key: &str) -> Option<u16> {
-    if let Some(pos) = source.find(key) {
-        let tail = &source[pos + key.len()..];
-        let num_str: String = tail
-            .chars()
-            .skip_while(|c| c.is_whitespace() || *c == ':')
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
-        num_str.parse::<u16>().ok()
-    } else {
-        source.trim().parse::<u16>().ok()
-    }
+fn set_labels_12(arr: [&str; 12]) -> [String; 12] {
+    std::array::from_fn(|i| arr[i].to_string())
 }
 
-fn parse_numeric_key_u32(source: &str, key: &str) -> Option<u32> {
-    if let Some(pos) = source.find(key) {
-        let tail = &source[pos + key.len()..];
-        let num_str: String = tail
-            .chars()
-            .skip_while(|c| c.is_whitespace() || *c == ':')
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
-        num_str.parse::<u32>().ok()
-    } else {
-        source.trim().parse::<u32>().ok()
-    }
+fn parse_leading_num<T: std::str::FromStr>(s: &str) -> Option<T> {
+    let num_str: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+    num_str.parse::<T>().ok()
 }
 
 pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<EditorItem> {
@@ -420,35 +401,51 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         for chunk_slice in bytes.as_chunks::<{ SpellEntry::STRIDE }>().0 {
             if let Ok(e) = SpellEntry::decode(chunk_slice) {
                 let req_str = e.format_skill_reqs();
+                let faction = e.format_target_faction();
+                let mode = e.format_target_mode();
                 let display = format!(
-                    "Spell #{:<5} [Line: {:<3}] | Req: {:<16} | Mana: {:<3} | Cast: {:<4}ms | CD: {:<5}ms | Range: {}-{} | Target: {} ({})",
+                    "Spell #{:<5} [Line: {:<3}] | Req: {:<16} | Target: {} ({}) | Mana: {:<3} | CD: {:<5}ms | Range: {}-{}",
                     e.spell_id,
                     e.spell_line_id,
                     req_str,
+                    faction,
+                    mode,
                     e.mana_cost,
-                    e.cast_time_ms,
                     e.recast_time_ms,
                     e.min_range,
                     e.max_range,
-                    e.format_target_faction(),
-                    e.format_target_mode(),
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: e.spell_id.to_string(),
-                        val1: format!(
-                            "Mana: {}, Cast: {}ms, CD: {}ms",
-                            e.mana_cost, e.cast_time_ms, e.recast_time_ms
-                        ),
-                        val2: format!(
-                            "Line: {} | Req: {} | Range: {}-{} | Radius: {} | Power: {}%",
-                            e.spell_line_id,
-                            req_str,
-                            e.min_range,
-                            e.max_range,
-                            e.effect_range,
-                            e.effect_power
-                        ),
+                        val1: e.mana_cost.to_string(),
+                        val2: req_str.clone(),
+                        p1: e.mana_cost.to_string(),
+                        p2: e.cast_time_ms.to_string(),
+                        p3: e.recast_time_ms.to_string(),
+                        p4: e.min_range.to_string(),
+                        p5: e.max_range.to_string(),
+                        p6: format!("{} - {}", e.cast_target_faction, faction),
+                        p7: format!("{} - {}", e.cast_target_mode, mode),
+                        p8: e.effect_power.to_string(),
+                        p9: e.effect_range.to_string(),
+                        p10: e.spell_line_id.to_string(),
+                        p11: e.params[0].to_string(),
+                        p12: e.params[1].to_string(),
+                        labels: set_labels_12([
+                            "Mana Cost:",
+                            "Cast Time (ms):",
+                            "Cooldown (ms):",
+                            "Min Range:",
+                            "Max Range:",
+                            "Target Faction (1=Enemy, 2=Ally):",
+                            "Target Mode (1=Figure, 5=Area):",
+                            "Power / Success Rate (%):",
+                            "Aura / AoE Radius:",
+                            "Spell Line ID Link:",
+                            "Param 0 (Base Dmg / Summon ID):",
+                            "Param 1 (Scaling / Duration):",
+                        ]),
                         display,
                     });
                 }
@@ -471,12 +468,32 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: l.line_id.to_string(),
-                        val1: l.icon_name,
-                        val2: format!(
-                            "School: {} | MaxLvl: {} | Flags: 0x{:02X} | NameID: {} | DescID: {}",
-                            school, l.max_level, l.line_flags, l.name_id, l.description_id
-                        ),
+                        val1: l.icon_name.clone(),
+                        val2: school.to_string(),
+                        p1: l.icon_name,
+                        p2: school.to_string(),
+                        p3: l.max_level.to_string(),
+                        p4: format!("0x{:02X}", l.line_flags),
+                        p5: l.name_id.to_string(),
+                        p6: l.description_id.to_string(),
+                        p7: l.ui_order.to_string(),
+                        p8: l.sub_school_id.to_string(),
+                        labels: set_labels_12([
+                            "Icon Texture Name:",
+                            "Magic School:",
+                            "Max Spell Level (12/20):",
+                            "Behavior Flags (Aura/Shield):",
+                            "Name Text ID:",
+                            "Description Text ID:",
+                            "UI Sort Order:",
+                            "Sub-School Index:",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
@@ -500,22 +517,41 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: u.upgrade_id.to_string(),
-                        val1: u.icon_name,
-                        val2: format!(
-                            "Bld: {} | Time: {}ms | Costs(W/S/I/L/A/M/F): {}/{}/{}/{}/{}/{}/{} | NameID: {} | DescID: {}",
-                            u.building_id,
-                            u.research_time_ms,
-                            u.costs[0], u.costs[1], u.costs[2], u.costs[3], u.costs[4], u.costs[5], u.costs[6],
-                            u.name_id,
-                            u.description_id
-                        ),
+                        val1: u.icon_name.clone(),
+                        val2: format!("Bld: {}", u.building_id),
+                        p1: u.icon_name,
+                        p2: u.building_id.to_string(),
+                        p3: u.research_time_ms.to_string(),
+                        p4: u.costs[0].to_string(),
+                        p5: u.costs[1].to_string(),
+                        p6: u.costs[2].to_string(),
+                        p7: u.costs[3].to_string(),
+                        p8: u.costs[4].to_string(),
+                        p9: u.costs[5].to_string(),
+                        p10: u.costs[6].to_string(),
+                        p11: u.name_id.to_string(),
+                        p12: u.description_id.to_string(),
+                        labels: set_labels_12([
+                            "Button Texture Asset:",
+                            "Building ID (Monument/Forge):",
+                            "Research Duration (ms):",
+                            "Wood Resource Cost:",
+                            "Stone Resource Cost:",
+                            "Iron Resource Cost:",
+                            "Lenya Resource Cost:",
+                            "Aria Resource Cost:",
+                            "Moonglass Resource Cost:",
+                            "Food Resource Cost:",
+                            "Button Name Text ID:",
+                            "Description Text ID:",
+                        ]),
                         display,
                     });
                 }
             }
         }
     }
-    // 4. Items Master (0x07D3)
+    // 4. Items Master (0x07D3 / Cat 2003)
     else if (category.contains("0x07D3") || category.contains("2003"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D3)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -523,24 +559,44 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         for chunk_slice in bytes.as_chunks::<{ ItemMasterEntry::STRIDE }>().0 {
             if let Ok(e) = ItemMasterEntry::decode(chunk_slice) {
                 let display = format!(
-                    "Item #{:<5} | Buy: {:<6}c | Sell: {:<6}c | Type: ({}, {}) | Set: {}",
-                    e.item_id, e.buy_value, e.sell_value, e.item_type1, e.item_type2, e.item_set_id
+                    "Item #{:<5} | Buy: {:<6}c | Sell: {:<6}c | Type: ({}, {})",
+                    e.item_id, e.buy_value, e.sell_value, e.item_type1, e.item_type2
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: e.item_id.to_string(),
-                        val1: format!("Buy: {}, Sell: {}", e.buy_value, e.sell_value),
-                        val2: format!(
-                            "NameID: {} | StatsID: {} | UnitID: {} | BuildingID: {} | Flags: 0x{:02X} | Set: {}",
-                            e.name_id, e.unit_stats_id, e.army_unit_id, e.building_id, e.option_flags, e.item_set_id
-                        ),
+                        val1: e.buy_value.to_string(),
+                        val2: e.sell_value.to_string(),
+                        p1: e.buy_value.to_string(),
+                        p2: e.sell_value.to_string(),
+                        p3: e.name_id.to_string(),
+                        p4: e.unit_stats_id.to_string(),
+                        p5: e.army_unit_id.to_string(),
+                        p6: e.building_id.to_string(),
+                        p7: format!("0x{:02X}", e.option_flags),
+                        p8: e.item_set_id.to_string(),
+                        labels: set_labels_12([
+                            "Buy Price (Copper):",
+                            "Sell Price (Copper):",
+                            "Localized Name ID:",
+                            "UnitStats ID Link:",
+                            "Army Unit ID Link:",
+                            "Building ID Link:",
+                            "Option Flags:",
+                            "Item Set ID:",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 5. Item Stats Modifiers (0x07D4)
+    // 5. Item Stats Modifiers (0x07D4 / Cat 2004)
     else if (category.contains("0x07D4") || category.contains("2004"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D4)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -554,29 +610,40 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: m.item_id.to_string(),
-                        val1: format!(
-                            "Str: {}, Sta: {}, Agi: {}, Dex: {}, Armor: {}",
-                            m.strength, m.stamina, m.agility, m.dexterity, m.armor
-                        ),
-                        val2: format!(
-                            "HP: {} | Mana: {} | Res(F/I/B/M): {}/{}/{}/{} | Spd(W/F/C): {}/{}/{}",
-                            m.health,
-                            m.mana,
-                            m.resist_fire,
-                            m.resist_ice,
-                            m.resist_black,
-                            m.resist_mind,
-                            m.speed_walk,
-                            m.speed_fight,
-                            m.speed_cast
-                        ),
+                        p1: m.strength.to_string(),
+                        p2: m.stamina.to_string(),
+                        p3: m.agility.to_string(),
+                        p4: m.dexterity.to_string(),
+                        p5: m.armor.to_string(),
+                        p6: m.health.to_string(),
+                        p7: m.mana.to_string(),
+                        p8: m.resist_fire.to_string(),
+                        p9: m.resist_ice.to_string(),
+                        p10: m.resist_black.to_string(),
+                        p11: m.resist_mind.to_string(),
+                        p12: format!("{}/{}/{}", m.speed_walk, m.speed_fight, m.speed_cast),
+                        labels: set_labels_12([
+                            "Strength:",
+                            "Stamina:",
+                            "Agility:",
+                            "Dexterity:",
+                            "Armor Class:",
+                            "Health Bonus:",
+                            "Mana Bonus:",
+                            "Fire Resist:",
+                            "Ice Resist:",
+                            "Black Resist:",
+                            "Mind Resist:",
+                            "Speeds (W/F/C):",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 6. Unit Stats (0x07D5)
+    // 6. Unit Stats (0x07D5 / Cat 2005)
     else if (category.contains("0x07D5") || category.contains("2005"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D5)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -606,18 +673,44 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: u.stats_id.to_string(),
-                        val1: format!("Level: {}, Race: {}", u.unit_level, u.unit_race),
-                        val2: format!(
-                            "HP: {} | MP: {} | Str: {} | Sta: {} | Agi: {} | Dex: {} | Head: {}",
-                            hp, mana, u.strength, u.stamina, u.agility, u.dexterity, u.head_id
+                        val1: u.unit_level.to_string(),
+                        val2: u.unit_race.to_string(),
+                        p1: u.unit_level.to_string(),
+                        p2: u.unit_race.to_string(),
+                        p3: u.strength.to_string(),
+                        p4: u.stamina.to_string(),
+                        p5: u.agility.to_string(),
+                        p6: u.dexterity.to_string(),
+                        p7: u.intelligence.to_string(),
+                        p8: u.wisdom.to_string(),
+                        p9: u.charisma.to_string(),
+                        p10: u.res_fire.to_string(),
+                        p11: format!("HP: {}, MP: {}", hp, mana),
+                        p12: format!(
+                            "Walk: {}, Fight: {}, Cast: {}",
+                            u.speed_walk, u.speed_fight, u.speed_cast
                         ),
+                        labels: set_labels_12([
+                            "Unit Level:",
+                            "Race ID:",
+                            "Strength:",
+                            "Stamina:",
+                            "Agility:",
+                            "Dexterity:",
+                            "Intelligence:",
+                            "Wisdom:",
+                            "Charisma:",
+                            "Fire Resistance:",
+                            "Effective Health / Mana:",
+                            "Movement & Combat Speeds:",
+                        ]),
                         display,
                     });
                 }
             }
         }
     }
-    // 7. 2D Gfx Items (0x07DC)
+    // 7. 2D Gfx Items (0x07DC / Cat 2012)
     else if (category.contains("0x07DC") || category.contains("2012"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -631,15 +724,32 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: g.item_id.to_string(),
-                        val1: g.mesh_name,
-                        val2: format!("Flag: {}, Extra: {}", g.flag, g.extra),
+                        val1: g.mesh_name.clone(),
+                        p1: g.mesh_name,
+                        p2: g.flag.to_string(),
+                        p3: g.extra.to_string(),
+                        labels: set_labels_12([
+                            "Mesh / Icon Texture Name:",
+                            "Type Flag (1=Scroll, 2=Spell, 0=Item):",
+                            "Extra Value:",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 8. Weapon Stats (0x07DF)
+    // 8. Weapon Stats (0x07DF / Cat 2015)
     else if (category.contains("0x07DF") || category.contains("2015"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DF)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -654,18 +764,38 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: w.item_id.to_string(),
-                        val1: format!("{}-{}", w.min_damage, w.max_damage),
-                        val2: format!(
-                            "Speed: {} | Range: {}-{} | Type: {} | Material: {} | DPS: {:.2}",
-                            w.speed, w.min_range, w.max_range, w.weapon_type, w.material, dps
-                        ),
+                        val1: w.min_damage.to_string(),
+                        val2: w.max_damage.to_string(),
+                        p1: w.min_damage.to_string(),
+                        p2: w.max_damage.to_string(),
+                        p3: w.speed.to_string(),
+                        p4: format!("{:.2}", dps),
+                        p5: w.min_range.to_string(),
+                        p6: w.max_range.to_string(),
+                        p7: w.weapon_type.to_string(),
+                        p8: w.material.to_string(),
+                        labels: set_labels_12([
+                            "Min Damage:",
+                            "Max Damage:",
+                            "Attack Speed (%):",
+                            "Calculated Live DPS:",
+                            "Min Range:",
+                            "Max Range:",
+                            "Weapon Type ID:",
+                            "Material ID:",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 9. Spells BiMap (0x07E2)
+    // 9. Spells BiMap (0x07E2 / Cat 2018)
     else if (category.contains("0x07E2") || category.contains("2018"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E2)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -680,14 +810,29 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                     items.push(EditorItem {
                         id_str: b.spell_id.to_string(),
                         val1: b.scroll_item_id.to_string(),
-                        val2: "BiMap Entry".into(),
+                        p1: b.scroll_item_id.to_string(),
+                        labels: set_labels_12([
+                            "Mapped Scroll Item ID:",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 10. Races (0x07E6)
+    // 10. Races (0x07E6 / Cat 2022)
     else if (category.contains("0x07E6") || category.contains("2022"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E6)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -702,18 +847,36 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: r.race_id.to_string(),
-                        val1: format!("Aggro: {}, Moral: {}", r.aggro_factor, r.moral),
-                        val2: format!(
-                            "Faction: {} ({}) | Hear: {} | Retreat: {}% | Flee: {}",
-                            r.faction_id, clan, r.hear_range, r.retreat_on_dmg, r.flee
-                        ),
+                        p1: r.aggro_factor.to_string(),
+                        p2: r.moral.to_string(),
+                        p3: r.aggressiveness.to_string(),
+                        p4: format!("{} ({})", r.faction_id, clan),
+                        p5: r.vis_day.to_string(),
+                        p6: r.vis_night.to_string(),
+                        p7: r.hear_range.to_string(),
+                        p8: format!("0x{:04X}", r.ai_flags),
+                        labels: set_labels_12([
+                            "Aggro Factor:",
+                            "Morale:",
+                            "Aggressiveness:",
+                            "Faction / Clan:",
+                            "Vision (Day):",
+                            "Vision (Night):",
+                            "Hearing Range:",
+                            "AI Flags Bitmask:",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 11. Units Master (0x07E8) - 64-byte verified stride
+    // 11. Units Master (0x07E8 / Cat 2024)
     else if (category.contains("0x07E8") || category.contains("2024"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E8)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -728,18 +891,36 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: u.unit_id.to_string(),
-                        val1: u.internal_name,
-                        val2: format!(
-                            "StatsID: {} | NameID: {} | XP: {} | Falloff: {} | Copper: {} | Max XP: {}",
-                            u.stats_id, u.name_id, u.xp_gain, u.xp_falloff, u.copper, max_farm_xp
-                        ),
+                        p1: u.internal_name,
+                        p2: u.xp_gain.to_string(),
+                        p3: u.xp_falloff.to_string(),
+                        p4: u.copper.to_string(),
+                        p5: u.stats_id.to_string(),
+                        p6: u.name_id.to_string(),
+                        p7: u.spawn_flag.to_string(),
+                        p8: max_farm_xp.to_string(),
+                        labels: set_labels_12([
+                            "Internal Developer Name:",
+                            "Base XP Gain:",
+                            "XP Falloff Curve:",
+                            "Copper Drop:",
+                            "UnitStats ID Link:",
+                            "Localized Name ID:",
+                            "Spawn Flag:",
+                            "Max XP (500 Kills):",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 12. Buildings Master (0x07ED) - 23-byte verified stride
+    // 12. Buildings Master (0x07ED / Cat 2029)
     else if (category.contains("0x07ED") || category.contains("2029"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07ED)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -753,22 +934,36 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: b.building_id.to_string(),
-                        val1: format!("Health: {}, Slots: {}", b.health, b.slots),
-                        val2: format!(
-                            "ReqBuilding: {} | WorkerCycle: {}ms | Angle: {} | RotCenter: ({}, {})",
-                            b.building_req_id,
-                            b.worker_cycle_time,
-                            b.initial_angle,
-                            b.rot_center_x,
-                            b.rot_center_y
-                        ),
+                        p1: b.health.to_string(),
+                        p2: b.slots.to_string(),
+                        p3: b.worker_cycle_time.to_string(),
+                        p4: b.building_req_id.to_string(),
+                        p5: b.name_id.to_string(),
+                        p6: b.race_id.to_string(),
+                        p7: b.initial_angle.to_string(),
+                        p8: format!("({},{})", b.rot_center_x, b.rot_center_y),
+                        labels: set_labels_12([
+                            "Health (HP):",
+                            "Worker Slots:",
+                            "Worker Cycle (ms):",
+                            "Prerequisite Building ID:",
+                            "Localized Name Text ID:",
+                            "Faction Race ID:",
+                            "Initial Placement Angle:",
+                            "Center Offset (X,Y):",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 13. Building Collision Polygons (0x07EE / Cat 2030) - Dynamic Length Parsing
+    // 13. Building Collision Polygons (0x07EE / Cat 2030)
     else if (category.contains("0x07EE") || category.contains("2030"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07EE)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -778,7 +973,6 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             if cur.position() as usize + 5 > bytes.len() {
                 break;
             }
-
             let bld_id = cur.read_u16::<LittleEndian>().unwrap_or(0);
             let poly_idx = cur.read_u8().unwrap_or(0);
             let flag = cur.read_u8().unwrap_or(0);
@@ -798,18 +992,33 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 "BuildingCollision #{:<4} [Poly #{}] | Vertices: {:<2} | Flag: {}",
                 bld_id, poly_idx, vertex_count, flag
             );
-
             if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                 items.push(EditorItem {
                     id_str: format!("{}:{}", bld_id, poly_idx),
-                    val1: vertex_count.to_string(),
-                    val2: coords.join(" | "),
+                    p1: vertex_count.to_string(),
+                    p2: flag.to_string(),
+                    p3: coords.join(" "),
+                    labels: set_labels_12([
+                        "Vertex Count:",
+                        "Collision Pass Flag:",
+                        "Vertices Vector List (X,Y):",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                    ]),
                     display,
+                    ..Default::default()
                 });
             }
         }
     }
-    // 14. Unit Loot Tables (0x07F8) - 11-byte verified cascading stride
+    // 14. Unit Loot Tables (0x07F8 / Cat 2040)
     else if (category.contains("0x07F8") || category.contains("2040"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07F8)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -824,18 +1033,39 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: format!("{}:{}", l.unit_id, l.slot),
-                        val1: format!("{}, {}, {}", l.item1, l.item2, l.item3),
-                        val2: format!(
-                            "Chances: {}%, {}% | Cascading: [{:.1}%, {:.1}%, {:.1}%]",
-                            l.chance1, l.chance2, eff1, eff2, eff3
-                        ),
+                        val1: l.item1.to_string(),
+                        val2: l.item2.to_string(),
+                        p1: l.slot.to_string(),
+                        p2: l.item1.to_string(),
+                        p3: l.chance1.to_string(),
+                        p4: l.item2.to_string(),
+                        p5: l.chance2.to_string(),
+                        p6: l.item3.to_string(),
+                        p7: format!("{:.1}%", eff1),
+                        p8: format!("{:.1}%", eff2),
+                        p9: format!("{:.1}%", eff3),
+                        labels: set_labels_12([
+                            "Drop Slot Number:",
+                            "Primary Item 1 ID:",
+                            "Item 1 Drop Chance (%):",
+                            "Secondary Item 2 ID:",
+                            "Item 2 Drop Chance (%):",
+                            "Fallback Item 3 ID:",
+                            "Effective Item 1 Odds (%):",
+                            "Effective Item 2 Odds (%):",
+                            "Effective Empty Odds (%):",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 15. Chest Loot Tables (0x0811 / Cat 2065) - 11-byte verified cascading stride
+    // 15. Chest Loot Tables (0x0811 / Cat 2065)
     else if (category.contains("0x0811") || category.contains("2065"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0811)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -850,70 +1080,39 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: format!("{}:{}", l.object_id, l.slot),
-                        val1: format!("{}, {}, {}", l.item1, l.item2, l.item3),
-                        val2: format!(
-                            "Chances: {}%, {}% | Cascading: [{:.1}%, {:.1}%, {:.1}%]",
-                            l.chance1, l.chance2, eff1, eff2, eff3
-                        ),
+                        val1: l.item1.to_string(),
+                        val2: l.item2.to_string(),
+                        p1: l.slot.to_string(),
+                        p2: l.item1.to_string(),
+                        p3: l.chance1.to_string(),
+                        p4: l.item2.to_string(),
+                        p5: l.chance2.to_string(),
+                        p6: l.item3.to_string(),
+                        p7: format!("{:.1}%", eff1),
+                        p8: format!("{:.1}%", eff2),
+                        p9: format!("{:.1}%", eff3),
+                        labels: set_labels_12([
+                            "Drop Slot Number:",
+                            "Primary Item 1 ID:",
+                            "Item 1 Drop Chance (%):",
+                            "Secondary Item 2 ID:",
+                            "Item 2 Drop Chance (%):",
+                            "Fallback Item 3 ID:",
+                            "Effective Item 1 Odds (%):",
+                            "Effective Item 2 Odds (%):",
+                            "Effective Empty Odds (%):",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 16. Level Progression (0x0800)
-    else if (category.contains("0x0800") || category.contains("2048"))
-        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0800)
-        && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
-    {
-        for chunk_slice in bytes.as_chunks::<{ ComplexPropertyEntry::STRIDE }>().0 {
-            if let Ok(cp) = ComplexPropertyEntry::decode(chunk_slice) {
-                let display = format!(
-                    "Progression Level #{:<2} | XP Req: {:<8} | HP Factor: {}% | MP Factor: {}%",
-                    cp.level, cp.experience_required, cp.health_factor, cp.mana_factor
-                );
-                if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
-                    items.push(EditorItem {
-                        id_str: cp.level.to_string(),
-                        val1: cp.experience_required.to_string(),
-                        val2: format!(
-                            "HP Factor: {}% | MP Factor: {}% | Dmg Factor: {}% | Armor Factor: {}% | AttrLimit: {} | SkillLimit: {}",
-                            cp.health_factor, cp.mana_factor, cp.damage_factor, cp.armor_class_factor, cp.attribute_point_limit, cp.skill_point_limit
-                        ),
-                        display,
-                    });
-                }
-            }
-        }
-    }
-    // 17. Objects Master (0x0802) - 54-byte verified stride
-    else if (category.contains("0x0802") || category.contains("2050"))
-        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0802)
-        && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
-    {
-        for chunk_slice in bytes.as_chunks::<{ ObjectMasterEntry::STRIDE }>().0 {
-            if let Ok(o) = ObjectMasterEntry::decode(chunk_slice) {
-                let loot_tag = if o.contains_loot() { " [Loot]" } else { "" };
-                let block_tag = if o.blocks_terrain() { " [Blocks]" } else { "" };
-                let display = format!(
-                    "Object #{:<4} [{}] | Res: {}{}{}",
-                    o.object_id, o.category_name, o.resource_amount, loot_tag, block_tag
-                );
-                if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
-                    items.push(EditorItem {
-                        id_str: o.object_id.to_string(),
-                        val1: o.resource_amount.to_string(),
-                        val2: format!(
-                            "Type: {} | NameID: {} | Dims: {}x{} | Flags: 0x{:02X}",
-                            o.category_name, o.name_id, o.width, o.height, o.flags
-                        ),
-                        display,
-                    });
-                }
-            }
-        }
-    }
-    // 18. Unit Equipment (0x07E9)
+    // 16. Unit Equipment (0x07E9 / Cat 2025)
     else if (category.contains("0x07E9") || category.contains("2025"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E9)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -928,15 +1127,31 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: format!("{}:{}", e.unit_id, e.equipment_slot),
-                        val1: e.item_id.to_string(),
-                        val2: slot_name.to_string(),
+                        p1: e.item_id.to_string(),
+                        p2: e.equipment_slot.to_string(),
+                        p3: slot_name.to_string(),
+                        labels: set_labels_12([
+                            "Equipped Item ID:",
+                            "Equipment Slot Index:",
+                            "Slot Name:",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 19. Merchant Inventory (0x07FA)
+    // 17. Merchant Inventory (0x07FA / Cat 2042)
     else if (category.contains("0x07FA") || category.contains("2042"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07FA)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -944,21 +1159,141 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         for chunk_slice in bytes.as_chunks::<{ MerchantInventoryEntry::STRIDE }>().0 {
             if let Ok(m) = MerchantInventoryEntry::decode(chunk_slice) {
                 let display = format!(
-                    "Merchant #{:<5} sells Item #{:<5} (Qty: {})",
+                    "Merchant #{:<5} sells Item #{:<5} (Stock: {})",
                     m.merchant_id, m.item_id, m.stock
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: format!("{}:{}", m.merchant_id, m.item_id),
-                        val1: m.stock.to_string(),
-                        val2: format!("Merchant: {}, Item: {}", m.merchant_id, m.item_id),
+                        p1: m.stock.to_string(),
+                        p2: m.merchant_id.to_string(),
+                        p3: m.item_id.to_string(),
+                        labels: set_labels_12([
+                            "Inventory Stock Quantity:",
+                            "Merchant Unit ID:",
+                            "Sold Item ID:",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 20. Quests (0x080D) - 17-byte verified stride
+    // 18. Complex Properties / Level Progression (0x0800 / Cat 2048)
+    else if (category.contains("0x0800") || category.contains("2048"))
+        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0800)
+        && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
+    {
+        for chunk_slice in bytes.as_chunks::<{ ComplexPropertyEntry::STRIDE }>().0 {
+            if let Ok(cp) = ComplexPropertyEntry::decode(chunk_slice) {
+                let display = format!(
+                    "Level #{:<2} | XP Req: {:<8} | HP Factor: {}% | MP Factor: {}%",
+                    cp.level, cp.experience_required, cp.health_factor, cp.mana_factor
+                );
+                if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
+                    items.push(EditorItem {
+                        id_str: cp.level.to_string(),
+                        p1: cp.experience_required.to_string(),
+                        p2: cp.health_factor.to_string(),
+                        p3: cp.mana_factor.to_string(),
+                        p4: cp.damage_factor.to_string(),
+                        p5: cp.armor_class_factor.to_string(),
+                        p6: cp.attribute_point_limit.to_string(),
+                        p7: cp.skill_point_limit.to_string(),
+                        labels: set_labels_12([
+                            "XP Required for Level:",
+                            "HP Scaling Factor (%):",
+                            "Mana Scaling Factor (%):",
+                            "Damage Factor (%):",
+                            "Armor Factor (%):",
+                            "Attribute Point Limit:",
+                            "Skill Point Limit:",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
+                        display,
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+    }
+    // 19. Objects Master (0x0802 / Cat 2050) - 54-byte verified stride
+    else if (category.contains("0x0802") || category.contains("2050"))
+        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0802)
+        && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
+    {
+        for chunk_slice in bytes.as_chunks::<{ ObjectMasterEntry::STRIDE }>().0 {
+            if let Ok(o) = ObjectMasterEntry::decode(chunk_slice) {
+                let mut flags_tags = Vec::new();
+                if o.contains_loot() {
+                    flags_tags.push("Loot");
+                }
+                if o.blocks_terrain() {
+                    flags_tags.push("Block");
+                }
+                if o.is_placeable() {
+                    flags_tags.push("Placeable");
+                }
+                if o.adjusts_height() {
+                    flags_tags.push("Height");
+                }
+                let tag_str = if flags_tags.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", flags_tags.join(","))
+                };
+
+                let display = format!(
+                    "Object #{:<4} [{}] | Res: {}{}",
+                    o.object_id, o.category_name, o.resource_amount, tag_str
+                );
+                if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
+                    items.push(EditorItem {
+                        id_str: o.object_id.to_string(),
+                        p1: o.category_name,
+                        p2: o.resource_amount.to_string(),
+                        p3: o.width.to_string(),
+                        p4: o.height.to_string(),
+                        p5: o.name_id.to_string(),
+                        p6: format!("0x{:02X}", o.flags),
+                        p7: o.flatten_mode.to_string(),
+                        p8: o.polygon_num.to_string(),
+                        labels: set_labels_12([
+                            "Internal Category Path:",
+                            "Resource Harvest Amount (Wood):",
+                            "Model Footprint Width:",
+                            "Model Footprint Height:",
+                            "Localized Name Text ID:",
+                            "Object Behavior Flags Bitmask:",
+                            "Terrain Flatten Mode:",
+                            "Collision Polygon Count:",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
+                        display,
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+    }
+    // 20. Quests (0x080D / Cat 2061)
     else if (category.contains("0x080D") || category.contains("2061"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080D)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -977,18 +1312,33 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: q.quest_id.to_string(),
-                        val1: format!("Parent: {}, Main: {}", q.parent_quest_id, q.is_main_quest),
-                        val2: format!(
-                            "NameID: {}, DescID: {}, Order: {}",
-                            q.name_id, q.description_id, q.order_index
-                        ),
+                        p1: q.parent_quest_id.to_string(),
+                        p2: q.is_main_quest.to_string(),
+                        p3: q.name_id.to_string(),
+                        p4: q.description_id.to_string(),
+                        p5: q.order_index.to_string(),
+                        labels: set_labels_12([
+                            "Parent Quest ID Link:",
+                            "Is Main Quest (1/0):",
+                            "Quest Title Text ID:",
+                            "Journal Text ID:",
+                            "Order Index:",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 21. Weapon Types (0x080F)
+    // 21. Weapon Types (0x080F / Cat 2063)
     else if (category.contains("0x080F") || category.contains("2063"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080F)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -1002,15 +1352,30 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: wt.type_id.to_string(),
-                        val1: wt.sharpness.to_string(),
-                        val2: format!("NameID: {}", wt.name_id),
+                        p1: wt.sharpness.to_string(),
+                        p2: wt.name_id.to_string(),
+                        labels: set_labels_12([
+                            "Weapon Sharpness (%):",
+                            "Localized Name Text ID:",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 22. Weapon Materials (0x0810)
+    // 22. Weapon Materials (0x0810 / Cat 2064)
     else if (category.contains("0x0810") || category.contains("2064"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0810)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -1024,15 +1389,29 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: wm.material_id.to_string(),
-                        val1: wm.name_id.to_string(),
-                        val2: format!("Material ID: {}", wm.material_id),
+                        p1: wm.name_id.to_string(),
+                        labels: set_labels_12([
+                            "Localized Name Text ID:",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 23. Item Sets (0x0818)
+    // 23. Item Sets (0x0818 / Cat 2072)
     else if (category.contains("0x0818") || category.contains("2072"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0818)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -1046,15 +1425,30 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: s.set_id.to_string(),
-                        val1: s.description_id.to_string(),
-                        val2: format!("Set Type: {}", s.set_type),
+                        p1: s.description_id.to_string(),
+                        p2: s.set_type.to_string(),
+                        labels: set_labels_12([
+                            "Set Bonus Description ID:",
+                            "Item Set Type ID:",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 24. Terrain Cultivation (0x07F0)
+    // 24. Terrain Cultivation (0x07F0 / Cat 2032)
     else if (category.contains("0x07F0") || category.contains("2032"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07F0)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -1068,15 +1462,30 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: tc.terrain_id.to_string(),
-                        val1: tc.block_value.to_string(),
-                        val2: format!("Flags: 0x{:02X}", tc.cultivation_flags),
+                        p1: tc.block_value.to_string(),
+                        p2: format!("0x{:02X}", tc.cultivation_flags),
+                        labels: set_labels_12([
+                            "Block Value:",
+                            "Cultivation Flags Bitmask:",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 25. Portals (0x0805) - 13-byte verified stride
+    // 25. Portals (0x0805 / Cat 2053)
     else if (category.contains("0x0805") || category.contains("2053"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0805)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -1091,18 +1500,33 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: p.portal_id.to_string(),
-                        val1: p.map_id.to_string(),
-                        val2: format!(
-                            "Pos: ({}, {}) | Default: {} | NameID: {}",
-                            p.pos_x, p.pos_y, p.is_default, p.name_id
-                        ),
+                        p1: p.map_id.to_string(),
+                        p2: p.pos_x.to_string(),
+                        p3: p.pos_y.to_string(),
+                        p4: p.is_default.to_string(),
+                        p5: p.name_id.to_string(),
+                        labels: set_labels_12([
+                            "Target Map ID:",
+                            "Coordinate X:",
+                            "Coordinate Y:",
+                            "Default Bindstone (1/0):",
+                            "Portal Name Text ID:",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 26. Descriptions (0x080A)
+    // 26. Descriptions (0x080A / Cat 2058)
     else if (category.contains("0x080A") || category.contains("2058"))
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080A)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
@@ -1116,51 +1540,63 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
                         id_str: d.description_id.to_string(),
-                        val1: d.text_id.to_string(),
-                        val2: format!("Description link #{}", d.description_id),
+                        p1: d.text_id.to_string(),
+                        labels: set_labels_12([
+                            "Target Text ID Link:",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                            "",
+                        ]),
                         display,
+                        ..Default::default()
                     });
                 }
             }
         }
     }
-    // 27. Object Collision Polygons (0x0809) - Dynamic Length Parsing
-    else if (category.contains("0x0809") || category.contains("2057"))
-        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0809)
-        && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
+    // 27. Universal fallback for any other small table
+    else if let Some(chunk) = manifest.chunks.iter().find(|c| {
+        category.contains(&format!("0x{:04X}", c.id)) || category.contains(&c.id.to_string())
+    }) && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
+        && let Some(info) = get_sf1_chunk_info(chunk.id)
+        && info.stride > 0
+        && bytes.len() % info.stride == 0
     {
-        let mut cur = Cursor::new(&bytes);
-        while (cur.position() as usize) < bytes.len() {
-            if cur.position() as usize + 5 > bytes.len() {
-                break;
-            }
-
-            let obj_id = cur.read_u16::<LittleEndian>().unwrap_or(0);
-            let flag1 = cur.read_u8().unwrap_or(0);
-            let flag2 = cur.read_u8().unwrap_or(0);
-            let vertex_count = cur.read_u8().unwrap_or(0);
-
-            let mut coords = Vec::new();
-            for _ in 0..vertex_count {
-                if cur.position() as usize + 4 > bytes.len() {
-                    break;
-                }
-                let x = cur.read_i16::<LittleEndian>().unwrap_or(0);
-                let y = cur.read_i16::<LittleEndian>().unwrap_or(0);
-                coords.push(format!("({},{})", x, y));
-            }
-
-            let display = format!(
-                "ObjCollision #{:<4} | Vertices: {:<2} | Flags: [{}, {}]",
-                obj_id, vertex_count, flag1, flag2
-            );
-
+        let count = bytes.len() / info.stride;
+        for i in 0..count {
+            let offset = i * info.stride;
+            let id = Cursor::new(&bytes[offset..offset + 2])
+                .read_u16::<LittleEndian>()
+                .unwrap_or(0);
+            let display = format!("Record #{:<5} [Cat 0x{:04X}]", id, chunk.id);
             if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                 items.push(EditorItem {
-                    id_str: obj_id.to_string(),
-                    val1: vertex_count.to_string(),
-                    val2: coords.join(" | "),
+                    id_str: id.to_string(),
+                    p1: id.to_string(),
+                    labels: set_labels_12([
+                        "Record ID:",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                        "",
+                    ]),
                     display,
+                    ..Default::default()
                 });
             }
         }
@@ -1173,16 +1609,14 @@ pub fn save_sf1_item(
     cff_dir: &Path,
     category: &str,
     index: usize,
-    _id_str: &str,
-    val1: &str,
-    val2: &str,
+    fields: &[String],
 ) -> std::io::Result<()> {
     let manifest_path = cff_dir.join("manifest.json");
     let m_str = fs::read_to_string(manifest_path)?;
     let manifest: Manifest = serde_json::from_str(&m_str)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
 
-    // Dynamic-length chunk editing is skipped directly from flat UI rows
+    // Dynamic-length collision chunks are skipped directly from flat UI rows
     if category.contains("0x0809")
         || category.contains("2057")
         || category.contains("0x07EE")
@@ -1209,36 +1643,67 @@ pub fn save_sf1_item(
         };
     }
 
+    let p1 = fields.get(1).map(|s| s.trim()).unwrap_or("");
+    let p2 = fields.get(2).map(|s| s.trim()).unwrap_or("");
+    let p3 = fields.get(3).map(|s| s.trim()).unwrap_or("");
+    let p4 = fields.get(4).map(|s| s.trim()).unwrap_or("");
+    let p5 = fields.get(5).map(|s| s.trim()).unwrap_or("");
+    let p6 = fields.get(6).map(|s| s.trim()).unwrap_or("");
+    let p7 = fields.get(7).map(|s| s.trim()).unwrap_or("");
+    let p8 = fields.get(8).map(|s| s.trim()).unwrap_or("");
+    let p9 = fields.get(9).map(|s| s.trim()).unwrap_or("");
+    let p10 = fields.get(10).map(|s| s.trim()).unwrap_or("");
+    let p11 = fields.get(11).map(|s| s.trim()).unwrap_or("");
+    let p12 = fields.get(12).map(|s| s.trim()).unwrap_or("");
+
     if category.contains("0x07D2") || category.contains("2002") {
         update_record!(0x07D2, SpellEntry, |e: &mut SpellEntry| {
-            if let Some(m) = parse_numeric_key_u16(val1, "Mana") {
+            if let Ok(m) = p1.parse::<u16>() {
                 e.mana_cost = m;
             }
-            if let Some(c) =
-                parse_numeric_key_u32(val1, "Cast").or_else(|| parse_numeric_key_u32(val2, "Cast"))
-            {
+            if let Ok(c) = p2.parse::<u32>() {
                 e.cast_time_ms = c;
             }
-            if let Some(r) = parse_numeric_key_u32(val1, "CD")
-                .or_else(|| parse_numeric_key_u32(val1, "Recast"))
-                .or_else(|| parse_numeric_key_u32(val2, "CD"))
-                .or_else(|| parse_numeric_key_u32(val2, "Recast"))
-            {
+            if let Ok(r) = p3.parse::<u32>() {
                 e.recast_time_ms = r;
             }
-            if let Some(p) = parse_numeric_key_u16(val2, "Power") {
-                e.effect_power = p;
+            if let Ok(min) = p4.parse::<u16>() {
+                e.min_range = min;
             }
-            if let Some(rad) = parse_numeric_key_u16(val2, "Radius") {
+            if let Ok(max) = p5.parse::<u16>() {
+                e.max_range = max;
+            }
+            if let Some(f) = parse_leading_num::<u8>(p6) {
+                e.cast_target_faction = f;
+            }
+            if let Some(m) = parse_leading_num::<u8>(p7) {
+                e.cast_target_mode = m;
+            }
+            if let Ok(pow) = p8.parse::<u16>() {
+                e.effect_power = pow;
+            }
+            if let Ok(rad) = p9.parse::<u16>() {
                 e.effect_range = rad;
+            }
+            if let Ok(line) = p10.parse::<u16>() {
+                e.spell_line_id = line;
+            }
+            if let Ok(p0) = p11.parse::<u32>() {
+                e.params[0] = p0;
+            }
+            if let Ok(p1_val) = p12.parse::<u32>() {
+                e.params[1] = p1_val;
             }
         });
     } else if category.contains("0x0806") || category.contains("2054") {
         update_record!(0x0806, SpellLineEntry, |e: &mut SpellLineEntry| {
-            if !val1.is_empty() {
-                e.icon_name = val1.trim().to_string();
+            if !p1.is_empty() {
+                e.icon_name = p1.to_string();
             }
-            if let Some(desc) = parse_numeric_key_u16(val2, "DescID") {
+            if let Ok(lvl) = p3.parse::<u8>() {
+                e.max_level = lvl;
+            }
+            if let Ok(desc) = p6.parse::<u16>() {
                 e.description_id = desc;
             }
         });
@@ -1247,125 +1712,125 @@ pub fn save_sf1_item(
             0x07F4,
             TechTreeUpgradeEntry,
             |e: &mut TechTreeUpgradeEntry| {
-                if !val1.is_empty() {
-                    e.icon_name = val1.trim().to_string();
+                if !p1.is_empty() {
+                    e.icon_name = p1.to_string();
                 }
-                if let Some(t) = parse_numeric_key_u32(val2, "Time") {
+                if let Ok(bld) = p2.parse::<u16>() {
+                    e.building_id = bld;
+                }
+                if let Ok(t) = p3.parse::<u32>() {
                     e.research_time_ms = t;
                 }
-                if let Some(desc) = parse_numeric_key_u16(val2, "DescID") {
+                if let Ok(w) = p4.parse::<u16>() {
+                    e.costs[0] = w;
+                }
+                if let Ok(s) = p5.parse::<u16>() {
+                    e.costs[1] = s;
+                }
+                if let Ok(i) = p6.parse::<u16>() {
+                    e.costs[2] = i;
+                }
+                if let Ok(l) = p7.parse::<u16>() {
+                    e.costs[3] = l;
+                }
+                if let Ok(a) = p8.parse::<u16>() {
+                    e.costs[4] = a;
+                }
+                if let Ok(m) = p9.parse::<u16>() {
+                    e.costs[5] = m;
+                }
+                if let Ok(f) = p10.parse::<u16>() {
+                    e.costs[6] = f;
+                }
+                if let Ok(name) = p11.parse::<u16>() {
+                    e.name_id = name;
+                }
+                if let Ok(desc) = p12.parse::<u16>() {
                     e.description_id = desc;
                 }
             }
         );
-    } else if category.contains("0x07D3") || category.contains("2003") {
-        update_record!(0x07D3, ItemMasterEntry, |e: &mut ItemMasterEntry| {
-            if let Some(buy) = parse_numeric_key_u32(val1, "Buy") {
-                e.buy_value = buy;
+    } else if category.contains("0x07DF") || category.contains("2015") {
+        update_record!(0x07DF, WeaponStatsEntry, |e: &mut WeaponStatsEntry| {
+            if let Ok(min) = p1.parse::<u16>() {
+                e.min_damage = min;
             }
-            if let Some(sell) = parse_numeric_key_u32(val1, "Sell") {
-                e.sell_value = sell;
+            if let Ok(max) = p2.parse::<u16>() {
+                e.max_damage = max;
+            }
+            if let Ok(spd) = p3.parse::<u16>() {
+                e.speed = spd;
+            }
+            if let Ok(min_r) = p5.parse::<u16>() {
+                e.min_range = min_r;
+            }
+            if let Ok(max_r) = p6.parse::<u16>() {
+                e.max_range = max_r;
             }
         });
-    } else if category.contains("0x07D4") || category.contains("2004") {
-        update_record!(
-            0x07D4,
-            ItemStatsModifierEntry,
-            |e: &mut ItemStatsModifierEntry| {
-                if let Some(s) = parse_numeric_key_u16(val1, "Str") {
-                    e.strength = s as i16;
-                }
-                if let Some(a) = parse_numeric_key_u16(val1, "Armor") {
-                    e.armor = a as i16;
-                }
-            }
-        );
     } else if category.contains("0x07D5") || category.contains("2005") {
         update_record!(0x07D5, UnitStatsEntry, |e: &mut UnitStatsEntry| {
-            if let Some(lvl) = parse_numeric_key_u16(val1, "Level") {
+            if let Ok(lvl) = p1.parse::<u16>() {
                 e.unit_level = lvl;
             }
-            if let Some(r) = parse_numeric_key_u16(val1, "Race") {
-                e.unit_race = r as u8;
+            if let Ok(race) = p2.parse::<u8>() {
+                e.unit_race = race;
+            }
+            if let Ok(str_val) = p3.parse::<u16>() {
+                e.strength = str_val;
+            }
+            if let Ok(sta_val) = p4.parse::<u16>() {
+                e.stamina = sta_val;
+            }
+            if let Ok(agi_val) = p5.parse::<u16>() {
+                e.agility = agi_val;
+            }
+            if let Ok(dex_val) = p6.parse::<u16>() {
+                e.dexterity = dex_val;
+            }
+            if let Ok(int_val) = p7.parse::<u16>() {
+                e.intelligence = int_val;
+            }
+            if let Ok(wis_val) = p8.parse::<u16>() {
+                e.wisdom = wis_val;
+            }
+            if let Ok(cha_val) = p9.parse::<u16>() {
+                e.charisma = cha_val;
             }
         });
     } else if category.contains("0x07DC") || category.contains("2012") {
         update_record!(0x07DC, Gfx2dItemEntry, |e: &mut Gfx2dItemEntry| {
-            e.mesh_name = val1.trim().to_string();
-        });
-    } else if category.contains("0x07DF") || category.contains("2015") {
-        update_record!(0x07DF, WeaponStatsEntry, |e: &mut WeaponStatsEntry| {
-            if val1.contains('-') {
-                let parts: Vec<&str> = val1.split('-').collect();
-                e.min_damage = parts
-                    .first()
-                    .and_then(|s| s.trim().parse::<u16>().ok())
-                    .unwrap_or(e.min_damage);
-                e.max_damage = parts
-                    .get(1)
-                    .and_then(|s| s.trim().parse::<u16>().ok())
-                    .unwrap_or(e.min_damage);
-            } else if let Ok(d) = val1.trim().parse::<u16>() {
-                e.min_damage = d;
-                e.max_damage = d;
-            }
-            if let Some(spd) = parse_numeric_key_u16(val2, "Speed") {
-                e.speed = spd;
-            }
-        });
-    } else if category.contains("0x07E2") || category.contains("2018") {
-        update_record!(0x07E2, SpellsBiMapEntry, |e: &mut SpellsBiMapEntry| {
-            if let Ok(rel) = val1.trim().parse::<u16>() {
-                e.scroll_item_id = rel;
-            }
-        });
-    } else if category.contains("0x07E6") || category.contains("2022") {
-        update_record!(0x07E6, RaceEntry, |e: &mut RaceEntry| {
-            if let Some(aggro) = parse_numeric_key_u16(val1, "Aggro") {
-                e.aggro_factor = aggro as u8;
-            }
-            if let Some(moral) = parse_numeric_key_u16(val1, "Moral") {
-                e.moral = moral as u8;
+            if !p1.is_empty() {
+                e.mesh_name = p1.to_string();
             }
         });
     } else if category.contains("0x07E8") || category.contains("2024") {
         update_record!(0x07E8, UnitMasterEntry, |e: &mut UnitMasterEntry| {
-            if !val1.is_empty() {
-                e.internal_name = val1.trim().to_string();
+            if !p1.is_empty() {
+                e.internal_name = p1.to_string();
             }
-            if let Some(xp) = parse_numeric_key_u32(val2, "XP") {
+            if let Ok(xp) = p2.parse::<u32>() {
                 e.xp_gain = xp;
             }
-            if let Some(c) = parse_numeric_key_u32(val2, "Copper") {
+            if let Ok(c) = p4.parse::<u32>() {
                 e.copper = c;
             }
         });
-    } else if category.contains("0x07ED") || category.contains("2029") {
-        update_record!(
-            0x07ED,
-            BuildingMasterEntry,
-            |e: &mut BuildingMasterEntry| {
-                if let Some(hp) = parse_numeric_key_u16(val1, "Health") {
-                    e.health = hp;
-                }
-                if let Some(slots) = parse_numeric_key_u16(val1, "Slots") {
-                    e.slots = slots as u8;
-                }
-            }
-        );
     } else if category.contains("0x07F8") || category.contains("2040") {
         update_record!(0x07F8, UnitLootTableEntry, |e: &mut UnitLootTableEntry| {
-            let items: Vec<u16> = val1
-                .split(',')
-                .filter_map(|s| s.trim().parse::<u16>().ok())
-                .collect();
-            if let Some(&i1) = items.first() {
+            if let Ok(i1) = p2.parse::<u16>() {
                 e.item1 = i1;
             }
-            if let Some(&i2) = items.get(1) {
+            if let Ok(c1) = p3.trim_end_matches('%').parse::<u8>() {
+                e.chance1 = c1;
+            }
+            if let Ok(i2) = p4.parse::<u16>() {
                 e.item2 = i2;
             }
-            if let Some(&i3) = items.get(2) {
+            if let Ok(c2) = p5.trim_end_matches('%').parse::<u8>() {
+                e.chance2 = c2;
+            }
+            if let Ok(i3) = p6.parse::<u16>() {
                 e.item3 = i3;
             }
         });
@@ -1374,40 +1839,66 @@ pub fn save_sf1_item(
             0x0811,
             ObjectLootTableEntry,
             |e: &mut ObjectLootTableEntry| {
-                let items: Vec<u16> = val1
-                    .split(',')
-                    .filter_map(|s| s.trim().parse::<u16>().ok())
-                    .collect();
-                if let Some(&i1) = items.first() {
+                if let Ok(i1) = p2.parse::<u16>() {
                     e.item1 = i1;
                 }
-                if let Some(&i2) = items.get(1) {
+                if let Ok(c1) = p3.trim_end_matches('%').parse::<u8>() {
+                    e.chance1 = c1;
+                }
+                if let Ok(i2) = p4.parse::<u16>() {
                     e.item2 = i2;
                 }
-                if let Some(&i3) = items.get(2) {
-                    e.item3 = i3;
+                if let Ok(c2) = p5.trim_end_matches('%').parse::<u8>() {
+                    e.chance2 = c2;
                 }
-            }
-        );
-    } else if category.contains("0x0800") || category.contains("2048") {
-        update_record!(
-            0x0800,
-            ComplexPropertyEntry,
-            |e: &mut ComplexPropertyEntry| {
-                if let Ok(xp) = val1.trim().parse::<u32>() {
-                    e.experience_required = xp;
+                if let Ok(i3) = p6.parse::<u16>() {
+                    e.item3 = i3;
                 }
             }
         );
     } else if category.contains("0x0802") || category.contains("2050") {
         update_record!(0x0802, ObjectMasterEntry, |e: &mut ObjectMasterEntry| {
-            if let Ok(res) = val1.trim().parse::<u16>() {
+            if !p1.is_empty() {
+                e.category_name = p1.to_string();
+            }
+            if let Ok(res) = p2.parse::<u16>() {
                 e.resource_amount = res;
             }
+            if let Ok(w) = p3.parse::<u16>() {
+                e.width = w;
+            }
+            if let Ok(h) = p4.parse::<u16>() {
+                e.height = h;
+            }
         });
+    } else if category.contains("0x07D3") || category.contains("2003") {
+        update_record!(0x07D3, ItemMasterEntry, |e: &mut ItemMasterEntry| {
+            if let Ok(b) = p1.parse::<u32>() {
+                e.buy_value = b;
+            }
+            if let Ok(s) = p2.parse::<u32>() {
+                e.sell_value = s;
+            }
+        });
+    } else if category.contains("0x07ED") || category.contains("2029") {
+        update_record!(
+            0x07ED,
+            BuildingMasterEntry,
+            |e: &mut BuildingMasterEntry| {
+                if let Ok(hp) = p1.parse::<u16>() {
+                    e.health = hp;
+                }
+                if let Ok(s) = p2.parse::<u8>() {
+                    e.slots = s;
+                }
+                if let Ok(w) = p3.parse::<u16>() {
+                    e.worker_cycle_time = w;
+                }
+            }
+        );
     } else if category.contains("0x07E9") || category.contains("2025") {
         update_record!(0x07E9, UnitEquipmentEntry, |e: &mut UnitEquipmentEntry| {
-            if let Ok(item) = val1.trim().parse::<u16>() {
+            if let Ok(item) = p1.parse::<u16>() {
                 e.item_id = item;
             }
         });
@@ -1416,20 +1907,39 @@ pub fn save_sf1_item(
             0x07FA,
             MerchantInventoryEntry,
             |e: &mut MerchantInventoryEntry| {
-                if let Ok(stk) = val1.trim().parse::<u16>() {
+                if let Ok(stk) = p1.parse::<u16>() {
                     e.stock = stk;
+                }
+            }
+        );
+    } else if category.contains("0x0800") || category.contains("2048") {
+        update_record!(
+            0x0800,
+            ComplexPropertyEntry,
+            |e: &mut ComplexPropertyEntry| {
+                if let Ok(xp) = p1.parse::<u32>() {
+                    e.experience_required = xp;
+                }
+                if let Ok(hp) = p2.parse::<u16>() {
+                    e.health_factor = hp;
+                }
+                if let Ok(mp) = p3.parse::<u16>() {
+                    e.mana_factor = mp;
                 }
             }
         );
     } else if category.contains("0x080D") || category.contains("2061") {
         update_record!(0x080D, QuestEntry, |e: &mut QuestEntry| {
-            if let Some(p) = parse_numeric_key_u32(val1, "Parent") {
+            if let Ok(p) = p1.parse::<u32>() {
                 e.parent_quest_id = p;
+            }
+            if let Ok(m) = p2.parse::<u8>() {
+                e.is_main_quest = m;
             }
         });
     } else if category.contains("0x080F") || category.contains("2063") {
         update_record!(0x080F, WeaponTypeEntry, |e: &mut WeaponTypeEntry| {
-            if let Ok(sh) = val1.trim().parse::<u8>() {
+            if let Ok(sh) = p1.parse::<u8>() {
                 e.sharpness = sh;
             }
         });
@@ -1438,14 +1948,14 @@ pub fn save_sf1_item(
             0x0810,
             WeaponMaterialEntry,
             |e: &mut WeaponMaterialEntry| {
-                if let Ok(nid) = val1.trim().parse::<u16>() {
+                if let Ok(nid) = p1.parse::<u16>() {
                     e.name_id = nid;
                 }
             }
         );
     } else if category.contains("0x0818") || category.contains("2072") {
         update_record!(0x0818, ItemSetEntry, |e: &mut ItemSetEntry| {
-            if let Ok(desc) = val1.trim().parse::<u16>() {
+            if let Ok(desc) = p1.parse::<u16>() {
                 e.description_id = desc;
             }
         });
@@ -1454,20 +1964,26 @@ pub fn save_sf1_item(
             0x07F0,
             TerrainCultivationEntry,
             |e: &mut TerrainCultivationEntry| {
-                if let Ok(b) = val1.trim().parse::<u8>() {
+                if let Ok(b) = p1.parse::<u8>() {
                     e.block_value = b;
                 }
             }
         );
     } else if category.contains("0x0805") || category.contains("2053") {
         update_record!(0x0805, PortalEntry, |e: &mut PortalEntry| {
-            if let Ok(m) = val1.trim().parse::<u32>() {
+            if let Ok(m) = p1.parse::<u32>() {
                 e.map_id = m;
+            }
+            if let Ok(x) = p2.parse::<u16>() {
+                e.pos_x = x;
+            }
+            if let Ok(y) = p3.parse::<u16>() {
+                e.pos_y = y;
             }
         });
     } else if category.contains("0x080A") || category.contains("2058") {
         update_record!(0x080A, DescriptionEntry, |e: &mut DescriptionEntry| {
-            if let Ok(t) = val1.trim().parse::<u16>() {
+            if let Ok(t) = p1.parse::<u16>() {
                 e.text_id = t;
             }
         });

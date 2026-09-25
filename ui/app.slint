@@ -87,6 +87,33 @@ export component AppWindow inherits Window {
     in-out property <string> editor_field_val1: "";
     in-out property <string> editor_field_val2: "";
 
+    // Contextual 12-field structured inspector properties
+    in-out property <string> editor_field_p1: "";
+    in-out property <string> editor_field_p2: "";
+    in-out property <string> editor_field_p3: "";
+    in-out property <string> editor_field_p4: "";
+    in-out property <string> editor_field_p5: "";
+    in-out property <string> editor_field_p6: "";
+    in-out property <string> editor_field_p7: "";
+    in-out property <string> editor_field_p8: "";
+    in-out property <string> editor_field_p9: "";
+    in-out property <string> editor_field_p10: "";
+    in-out property <string> editor_field_p11: "";
+    in-out property <string> editor_field_p12: "";
+
+    in-out property <string> editor_label_p1: "";
+    in-out property <string> editor_label_p2: "";
+    in-out property <string> editor_label_p3: "";
+    in-out property <string> editor_label_p4: "";
+    in-out property <string> editor_label_p5: "";
+    in-out property <string> editor_label_p6: "";
+    in-out property <string> editor_label_p7: "";
+    in-out property <string> editor_label_p8: "";
+    in-out property <string> editor_label_p9: "";
+    in-out property <string> editor_label_p10: "";
+    in-out property <string> editor_label_p11: "";
+    in-out property <string> editor_label_p12: "";
+
     // Visual Previews & Dual Cards
     in-out property <image> preview_icon1;
     in-out property <image> preview_icon2;
@@ -155,7 +182,7 @@ export component AppWindow inherits Window {
     // Callbacks: Balance Editor
     callback load_editor_data(string, string, string, string);
     callback select_editor_entry(int);
-    callback save_editor_entry(string, string, int, string, string, string);
+    callback save_editor_entry(string, string, int, [string]);
     callback add_editor_entry(string, string);
     callback duplicate_editor_entry(string, string, int, string);
     callback delete_editor_entry(string, string, int, string);
@@ -293,6 +320,33 @@ export component AppWindow inherits Window {
                 editor_field_id <=> root.editor_field_id;
                 editor_field_val1 <=> root.editor_field_val1;
                 editor_field_val2 <=> root.editor_field_val2;
+
+                editor_field_p1 <=> root.editor_field_p1;
+                editor_field_p2 <=> root.editor_field_p2;
+                editor_field_p3 <=> root.editor_field_p3;
+                editor_field_p4 <=> root.editor_field_p4;
+                editor_field_p5 <=> root.editor_field_p5;
+                editor_field_p6 <=> root.editor_field_p6;
+                editor_field_p7 <=> root.editor_field_p7;
+                editor_field_p8 <=> root.editor_field_p8;
+                editor_field_p9 <=> root.editor_field_p9;
+                editor_field_p10 <=> root.editor_field_p10;
+                editor_field_p11 <=> root.editor_field_p11;
+                editor_field_p12 <=> root.editor_field_p12;
+
+                editor_label_p1 <=> root.editor_label_p1;
+                editor_label_p2 <=> root.editor_label_p2;
+                editor_label_p3 <=> root.editor_label_p3;
+                editor_label_p4 <=> root.editor_label_p4;
+                editor_label_p5 <=> root.editor_label_p5;
+                editor_label_p6 <=> root.editor_label_p6;
+                editor_label_p7 <=> root.editor_label_p7;
+                editor_label_p8 <=> root.editor_label_p8;
+                editor_label_p9 <=> root.editor_label_p9;
+                editor_label_p10 <=> root.editor_label_p10;
+                editor_label_p11 <=> root.editor_label_p11;
+                editor_label_p12 <=> root.editor_label_p12;
+
                 preview_icon1 <=> root.preview_icon1;
                 preview_icon2 <=> root.preview_icon2;
                 spell_name_disp <=> root.spell_name_disp;
@@ -306,7 +360,7 @@ export component AppWindow inherits Window {
                 save_file(ext) => { root.save_file(ext) }
                 load_editor_data(dir, cat, flt, lang) => { root.load_editor_data(dir, cat, flt, lang) }
                 select_editor_entry(idx) => { root.select_editor_entry(idx) }
-                save_editor_entry(dir, cat, idx, id, v1, v2) => { root.save_editor_entry(dir, cat, idx, id, v1, v2) }
+                save_editor_entry(dir, cat, idx, fields) => { root.save_editor_entry(dir, cat, idx, fields) }
                 add_editor_entry(dir, cat) => { root.add_editor_entry(dir, cat) }
                 duplicate_editor_entry(dir, cat, idx, id) => { root.duplicate_editor_entry(dir, cat, idx, id) }
                 delete_editor_entry(dir, cat, idx, id) => { root.delete_editor_entry(dir, cat, idx, id) }
