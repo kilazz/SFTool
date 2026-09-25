@@ -24,6 +24,7 @@ export component CffTab inherits HorizontalLayout {
 
     callback unpack_cff(string, string);
     callback pack_cff(string, string, int);
+    callback audit_cff_coverage(string);
     callback create_cff_diff(string, string, string);
     callback apply_cff_patch(string, string);
     callback archive_item_clicked(int);
@@ -144,6 +145,23 @@ export component CffTab inherits HorizontalLayout {
                             clicked => {
                                 let target = root.save_file("cff");
                                 if (target != "") { root.pack_cff(root.selected_cff_dir, target, root.persisted_cff_comp); }
+                            }
+                        }
+                    }
+                }
+
+                PanelSection {
+                    title: "Database Integrity Audit";
+                    title-color: #23a55a;
+                    VerticalLayout {
+                        spacing: 6px;
+
+                        CustomButton {
+                            text: "📊 Audit Byte Coverage (100% Check)";
+                            enabled: root.selected_cff_dir != "";
+                            primary-color: #3e6a90;
+                            clicked => {
+                                root.audit_cff_coverage(root.selected_cff_dir);
                             }
                         }
                     }

@@ -176,6 +176,7 @@ export component AppWindow inherits Window {
     // Callbacks: CFF & Diff Engine
     callback unpack_cff(string, string);
     callback pack_cff(string, string, int);
+    callback audit_cff_coverage(string);
     callback create_cff_diff(string, string, string);
     callback apply_cff_patch(string, string);
 
@@ -300,6 +301,7 @@ export component AppWindow inherits Window {
                 save_file(ext) => { root.save_file(ext) }
                 unpack_cff(cff, out) => { root.unpack_cff(cff, out) }
                 pack_cff(dir, out, comp) => { root.pack_cff(dir, out, comp) }
+                audit_cff_coverage(d) => { root.audit_cff_coverage(d) }
                 create_cff_diff(b, m, p) => { root.create_cff_diff(b, m, p) }
                 apply_cff_patch(t, p) => { root.apply_cff_patch(t, p) }
                 archive_item_clicked(idx) => { root.archive_item_clicked(idx) }

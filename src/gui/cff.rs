@@ -1,4 +1,5 @@
 // src/gui/cff.rs
+
 use crate::AppWindow;
 use crate::cff;
 use crate::logger::UiLogger;
@@ -40,6 +41,15 @@ pub fn register_cff_callbacks(ui: &AppWindow, logger: UiLogger) {
             } else {
                 log.log("[+] CFF successfully packed.");
             }
+        });
+    });
+
+    let log_audit = logger.clone();
+    ui.on_audit_cff_coverage(move |dir| {
+        let log = log_audit.clone();
+        let p = PathBuf::from(dir.as_str());
+        thread::spawn(move || {
+            let _ = cff::dump::audit_coverage(&p, &log);
         });
     });
 

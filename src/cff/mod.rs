@@ -2,6 +2,7 @@
 
 pub mod container;
 pub mod diff;
+pub mod dump;
 pub mod editor;
 pub mod formulas;
 pub mod localization;

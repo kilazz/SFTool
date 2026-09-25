@@ -43,7 +43,7 @@ pub struct Manifest {
 }
 
 // -----------------------------------------------------------------------------
-// UNPACK ALL & PACK ALL
+// UNPACK ALL & PACK ALL (SEAMLESS ROUND-TRIP)
 // -----------------------------------------------------------------------------
 
 pub fn unpack_all(input: &Path, out_dir: &Path, logger: &UiLogger) -> io::Result<()> {
@@ -242,9 +242,15 @@ pub fn unpack_all(input: &Path, out_dir: &Path, logger: &UiLogger) -> io::Result
 
     logger.log(&format!("Unpacked {} chunks successfully.", chunk_idx));
     logger.log(&format!(
-        "Exported {} text datasets to JSON.",
+        "Exported {} text datasets to texts_json/.",
         text_extracted
     ));
+
+    // Automated tables_json export for seamless editing
+    if fmt_type == "sf1" {
+        let tables_dir = out_dir.join("tables_json");
+        let _ = super::dump::dump_all_json(out_dir, &tables_dir, logger);
+    }
 
     Ok(())
 }
@@ -278,8 +284,14 @@ pub fn pack_all(
     }
 
     let fmt_type = manifest.format.clone();
-    let json_dir = in_dir.join("texts_json");
 
+    // 1. Automatically recompile structured tables from tables_json into .dat
+    if fmt_type == "sf1" && in_dir.join("tables_json").exists() {
+        let _ = super::dump::compile_all_json_to_dat(in_dir, logger);
+    }
+
+    // 2. Automatically recompile string translations from texts_json into .dat
+    let json_dir = in_dir.join("texts_json");
     if let Ok(entries) = fs::read_dir(&json_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
@@ -328,7 +340,6 @@ pub fn pack_all(
         File::open(chunk_path)?.read_to_end(&mut uncomp_data)?;
 
         if fmt_type == "sf1" {
-            // Guard against division by zero for dynamic chunks (stride == 0)
             if let Some(info) = get_sf1_chunk_info(chunk.id)
                 && info.stride > 0
                 && !uncomp_data.is_empty()

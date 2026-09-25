@@ -1,6 +1,7 @@
 // src/cff/sf1_schema.rs
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use serde::{Deserialize, Serialize};
 use std::io::{self, Cursor, Read, Write};
 
 pub trait Sf1Record: Sized {
@@ -10,17 +11,29 @@ pub trait Sf1Record: Sized {
 }
 
 // =============================================================================
+// COLLISION POLYGONS (DYNAMIC EXPORT MODEL)
+// =============================================================================
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CollisionPolygonEntry {
+    pub entity_id: u16,
+    pub polygon_index: u8,
+    pub flag: u8,
+    pub vertices: Vec<(i16, i16)>,
+}
+
+// =============================================================================
 // CATEGORY 2002 (0x07D2) - SpellsMaster (Verified 76 Bytes Stride)
 // =============================================================================
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpellSkillReq {
     pub school: u8,
     pub sub_school: u8,
     pub level: u8,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SpellEntry {
     pub spell_id: u16,
     pub spell_line_id: u16,
@@ -198,7 +211,7 @@ impl SpellEntry {
 // CATEGORY 2054 (0x0806) - SpellLines (Verified 75 Bytes Stride)
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SpellLineEntry {
     pub line_id: u16,
     pub name_id: u16,
@@ -299,7 +312,7 @@ impl SpellLineEntry {
 // CATEGORY 2003 (0x07D3) - ItemsMaster
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ItemMasterEntry {
     pub item_id: u16,
     pub item_type1: u8,
@@ -355,7 +368,7 @@ impl Sf1Record for ItemMasterEntry {
 // CATEGORY 2004 (0x07D4) - ItemStatsModifiers
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ItemStatsModifierEntry {
     pub item_id: u16,
     pub strength: i16,
@@ -432,7 +445,7 @@ impl Sf1Record for ItemStatsModifierEntry {
 // CATEGORY 2005 (0x07D5) - UnitStats (Verified 47 Bytes Stride)
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UnitStatsEntry {
     pub stats_id: u16,
     pub unit_level: u16,
@@ -545,7 +558,7 @@ impl UnitStatsEntry {
 // CATEGORY 2012 (0x07DC) - 2D Gfx Items
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Gfx2dItemEntry {
     pub item_id: u16,
     pub flag: u8,
@@ -592,7 +605,7 @@ impl Sf1Record for Gfx2dItemEntry {
 // CATEGORY 2015 (0x07DF) - WeaponStats
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WeaponStatsEntry {
     pub item_id: u16,
     pub min_damage: u16,
@@ -639,7 +652,7 @@ impl Sf1Record for WeaponStatsEntry {
 // CATEGORY 2018 (0x07E2) - SpellsBiMap
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SpellsBiMapEntry {
     pub spell_id: u16,
     pub scroll_item_id: u16,
@@ -668,7 +681,7 @@ impl Sf1Record for SpellsBiMapEntry {
 // CATEGORY 2022 (0x07E6) - Races
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RaceEntry {
     pub race_id: u8,
     pub vis_day: u8,
@@ -754,7 +767,7 @@ impl Sf1Record for RaceEntry {
 // CATEGORY 2024 (0x07E8) - UnitsMaster (Verified 64 Bytes Stride)
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UnitMasterEntry {
     pub unit_id: u16,
     pub name_id: u16,
@@ -826,7 +839,7 @@ impl Sf1Record for UnitMasterEntry {
 // CATEGORY 2025 (0x07E9) - UnitEquipment
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UnitEquipmentEntry {
     pub unit_id: u16,
     pub equipment_slot: u8,
@@ -858,7 +871,7 @@ impl Sf1Record for UnitEquipmentEntry {
 // CATEGORY 2029 (0x07ED) - BuildingsMaster (Verified 23 Bytes Stride)
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BuildingMasterEntry {
     pub building_id: u16,
     pub race_id: u8,
@@ -923,7 +936,7 @@ impl Sf1Record for BuildingMasterEntry {
 // CATEGORY 2032 (0x07F0) - TerrainCultivation
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TerrainCultivationEntry {
     pub terrain_id: u16,
     pub block_value: u8,
@@ -955,13 +968,13 @@ impl Sf1Record for TerrainCultivationEntry {
 // CATEGORY 2036 (0x07F4) - TechTreeUpgrades (Verified 90 Bytes Stride)
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TechTreeUpgradeEntry {
     pub upgrade_id: u16,
     pub building_id: u16,
     pub name_id: u16,
     pub description_id: u16,
-    pub costs: [u16; 7], // Wood, Stone, Iron, Lenya, Aria, Moonglass, Food
+    pub costs: [u16; 7],
     pub icon_name: String,
     pub research_time_ms: u32,
 }
@@ -1037,7 +1050,7 @@ impl Sf1Record for TechTreeUpgradeEntry {
 // CATEGORY 2040 (0x07F8) - UnitLootTables (Verified 11 Bytes Stride)
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UnitLootTableEntry {
     pub unit_id: u16,
     pub slot: u8,
@@ -1081,7 +1094,7 @@ impl Sf1Record for UnitLootTableEntry {
 // CATEGORY 2065 (0x0811) - ObjectLootTables (Verified 11 Bytes Stride)
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ObjectLootTableEntry {
     pub object_id: u16,
     pub slot: u8,
@@ -1125,7 +1138,7 @@ impl Sf1Record for ObjectLootTableEntry {
 // CATEGORY 2042 (0x07FA) - MerchantInventory
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MerchantInventoryEntry {
     pub merchant_id: u16,
     pub item_id: u16,
@@ -1157,7 +1170,7 @@ impl Sf1Record for MerchantInventoryEntry {
 // CATEGORY 2048 (0x0800) - ComplexProperties
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ComplexPropertyEntry {
     pub level: u8,
     pub health_factor: u16,
@@ -1204,7 +1217,7 @@ impl Sf1Record for ComplexPropertyEntry {
 // CATEGORY 2050 (0x0802) - ObjectsMaster (Verified 54 Bytes Stride)
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ObjectMasterEntry {
     pub object_id: u16,
     pub name_id: u16,
@@ -1290,7 +1303,7 @@ impl ObjectMasterEntry {
 // CATEGORY 2053 (0x0805) - Portals (Verified 13 Bytes Stride)
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PortalEntry {
     pub portal_id: u16,
     pub map_id: u32,
@@ -1331,7 +1344,7 @@ impl Sf1Record for PortalEntry {
 // CATEGORY 2058 (0x080A) - Descriptions
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DescriptionEntry {
     pub description_id: u16,
     pub text_id: u16,
@@ -1360,7 +1373,7 @@ impl Sf1Record for DescriptionEntry {
 // CATEGORY 2061 (0x080D) - Quests (Verified 17 Bytes Stride)
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QuestEntry {
     pub quest_id: u32,
     pub parent_quest_id: u32,
@@ -1401,7 +1414,7 @@ impl Sf1Record for QuestEntry {
 // CATEGORY 2063 (0x080F) & 2064 (0x0810) - Weapon Types & Materials
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WeaponTypeEntry {
     pub type_id: u16,
     pub name_id: u16,
@@ -1429,7 +1442,7 @@ impl Sf1Record for WeaponTypeEntry {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct WeaponMaterialEntry {
     pub material_id: u16,
     pub name_id: u16,
@@ -1458,7 +1471,7 @@ impl Sf1Record for WeaponMaterialEntry {
 // CATEGORY 2072 (0x0818) - ItemSets
 // =============================================================================
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ItemSetEntry {
     pub set_id: u8,
     pub description_id: u16,

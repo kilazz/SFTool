@@ -40,6 +40,12 @@ CFF Database & SaveGame Commands:
   pack_cff <in_dir> <out_cff> [compression_level: 0-9, default: 6]
       Import texts from JSON into chunks and compile into a CFF container.
 
+  audit_coverage <cff_dir>
+      Scans all 49 database chunks and verifies 100% byte-level stride integrity.
+
+  dump_all_json <cff_dir> <out_dir>
+      Decodes and exports all 27+ structured game tables into clean editable JSON files.
+
   unpack_sav <input.sav> <out_dir>
       Inspect and extract all chunks and nested containers from a savegame (.sav).
 
@@ -649,6 +655,28 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             let comp = args.get(4).and_then(|s| s.parse::<u32>().ok()).unwrap_or(6);
             let (logger, handle) = make_cli_logger();
             cff::pack_all(Path::new(&args[2]), Path::new(&args[3]), comp, &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+
+        "audit_coverage" => {
+            if args.len() < 3 {
+                eprintln!("Usage: SFTool audit_coverage <cff_dir>");
+                return Ok(());
+            }
+            let (logger, handle) = make_cli_logger();
+            cff::dump::audit_coverage(Path::new(&args[2]), &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+
+        "dump_all_json" => {
+            if args.len() < 4 {
+                eprintln!("Usage: SFTool dump_all_json <cff_dir> <out_dir>");
+                return Ok(());
+            }
+            let (logger, handle) = make_cli_logger();
+            cff::dump::dump_all_json(Path::new(&args[2]), Path::new(&args[3]), &logger)?;
             drop(logger);
             let _ = handle.join();
         }
