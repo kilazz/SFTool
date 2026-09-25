@@ -15,7 +15,7 @@ use std::thread;
 struct HistoryItem {
     cff_dir: PathBuf,
     category: String,
-    idx: usize,
+    record_index: usize, // Absolute zero-based index in the raw binary chunk (.dat)
     saved_fields: Vec<String>,
 }
 
@@ -32,7 +32,7 @@ struct PreviewTask {
 pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
     let undo_stack = Arc::new(Mutex::new(Vec::<HistoryItem>::new()));
     let redo_stack = Arc::new(Mutex::new(Vec::<HistoryItem>::new()));
-    let items_cache = Arc::new(Mutex::new(Vec::<cff::EditorItem>::new()));
+    let displayed_items = Arc::new(Mutex::new(Vec::<cff::EditorItem>::new()));
 
     let (preview_tx, preview_rx) = mpsc::channel::<PreviewTask>();
     let preview_generation = Arc::new(AtomicU64::new(0));
@@ -40,7 +40,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
     let preview_gen_worker = preview_generation.clone();
     let ui_w_worker = ui.as_weak();
 
-    // Background thread for texture preview & 2D collision vector rendering
+    // Background thread for texture previews & 2D collision vector rendering
     thread::spawn(move || {
         while let Ok(mut task) = preview_rx.recv() {
             while let Ok(newer) = preview_rx.try_recv() {
@@ -51,7 +51,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
                 continue;
             }
 
-            // 1. Render 2D Vector Collision Footprints (Building & Object Collisions)
+            // 1. Render 2D Vector Collision Footprints
             if task.cat.contains("0x07EE") || task.cat.contains("0x0809") {
                 let coords: Vec<(i16, i16)> = task
                     .val2
@@ -69,7 +69,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
                     })
                     .collect();
 
-                let img = crate::cff::collision_render::render_collision_polygon(&coords, 96, 96);
+                let img = crate::cff::collision_render::render_collision_polygon(&coords, 180, 180);
                 if task.generation == preview_gen_worker.load(Ordering::SeqCst) {
                     let ui_w = ui_w_worker.clone();
                     let num_v = coords.len();
@@ -81,7 +81,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
                     });
                 }
             }
-            // 2. Decode In-Memory Texture Assets (Icons, Buttons, Meshes)
+            // 2. Decode In-Memory Texture Assets
             else if task.cat.contains("0x07DC")
                 || task.cat.contains("0x0806")
                 || task.cat.contains("0x07F4")
@@ -141,49 +141,156 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         }
     });
 
-    // 1. Load data
+    // 1. Load initial editor data with page 0 (Page Size = 250)
     let ui_weak = ui.as_weak();
-    let cache_load = items_cache.clone();
+    let displayed_load = displayed_items.clone();
+    let log_load = logger.clone();
+
     ui.on_load_editor_data(move |cff_dir, cat, flt, lang| {
         let dir = PathBuf::from(cff_dir.as_str());
         let c = cat.to_string();
         let f = flt.to_string();
         let l = lang.to_string();
         let ui_w = ui_weak.clone();
-        let cache = cache_load.clone();
+        let displayed = displayed_load.clone();
+        let log = log_load.clone();
 
         thread::spawn(move || {
-            let categories = cff::get_available_categories(&dir);
-            let items = cff::load_editor_items(&dir, &c, &f, &l);
-            let languages = cff::get_available_languages_display(&dir);
-            *cache.lock().unwrap() = items.clone();
+            let page_size = 250;
+            let paged = cff::load_editor_items_paged(&dir, &c, &f, &l, 0, page_size);
 
-            let count = items.len();
-            let list_items: Vec<_> = items
+            *displayed.lock().unwrap() = paged.items.clone();
+
+            let categories = cff::get_available_categories(&dir);
+            let languages = cff::get_available_languages_display(&dir);
+
+            // Automatically construct and populate the Quest Graph in Column 3 when Quests is selected
+            if c.contains("0x080D") {
+                let ui_w_g = ui_w.clone();
+                let dir_g = dir.clone();
+                let log_g = log.clone();
+                thread::spawn(move || {
+                    if let Ok((nodes, edges)) =
+                        crate::cff::quests::build_quest_graph_layout(&dir_g, &log_g)
+                    {
+                        let slint_nodes: Vec<crate::GraphNodeData> = nodes
+                            .into_iter()
+                            .map(|n| crate::GraphNodeData {
+                                id: n.id,
+                                title: n.title.into(),
+                                subtitle: n.subtitle.into(),
+                                is_main: n.is_main,
+                                x: n.x,
+                                y: n.y,
+                                width: n.width,
+                                height: n.height,
+                                record_index: n.record_index,
+                            })
+                            .collect();
+
+                        let slint_edges: Vec<crate::GraphEdgeData> = edges
+                            .into_iter()
+                            .map(|e| crate::GraphEdgeData {
+                                from_x: e.from_x,
+                                from_y: e.from_y,
+                                to_x: e.to_x,
+                                to_y: e.to_y,
+                            })
+                            .collect();
+
+                        let _ = ui_w_g.upgrade_in_event_loop(move |ui| {
+                            ui.set_graph_nodes(ModelRc::from(Rc::new(VecModel::from(slint_nodes))));
+                            ui.set_graph_edges(ModelRc::from(Rc::new(VecModel::from(slint_edges))));
+                        });
+                    }
+                });
+            }
+
+            let list_items: Vec<_> = paged
+                .items
                 .into_iter()
                 .map(|it| StandardListViewItem::from(SharedString::from(it.display)))
                 .collect();
             let cat_items: Vec<_> = categories.into_iter().map(SharedString::from).collect();
             let lang_items: Vec<_> = languages.into_iter().map(SharedString::from).collect();
 
+            let total_m = paged.total_matches;
+            let cur_p = paged.current_page as i32 + 1;
+            let tot_p = paged.total_pages as i32;
+
             let _ = ui_w.upgrade_in_event_loop(move |ui| {
                 ui.set_available_categories(ModelRc::from(Rc::new(VecModel::from(cat_items))));
                 ui.set_available_languages(ModelRc::from(Rc::new(VecModel::from(lang_items))));
                 ui.set_editor_entries(ModelRc::from(Rc::new(VecModel::from(list_items))));
-                ui.set_status_msg(format!("Loaded {} records into editor.", count).into());
+                ui.set_current_page(cur_p);
+                ui.set_total_pages(tot_p);
+                ui.set_page_info(
+                    format!("Page {} of {} ({} records)", cur_p, tot_p, total_m).into(),
+                );
+                ui.set_status_msg(format!("Loaded {} matching records.", total_m).into());
             });
         });
     });
 
-    // 2. Select entry (populates 12-field contextual grid)
+    // 2. Pagination Page Switch Callback
+    let ui_weak_page = ui.as_weak();
+    let displayed_page = displayed_items.clone();
+    ui.on_change_page(move |cff_dir, cat, flt, lang, new_page| {
+        let dir = PathBuf::from(cff_dir.as_str());
+        let c = cat.to_string();
+        let f = flt.to_string();
+        let l = lang.to_string();
+        let target_page = (new_page as usize).saturating_sub(1);
+        let ui_w = ui_weak_page.clone();
+        let displayed = displayed_page.clone();
+
+        thread::spawn(move || {
+            let paged = cff::load_editor_items_paged(&dir, &c, &f, &l, target_page, 250);
+            *displayed.lock().unwrap() = paged.items.clone();
+
+            let list_items: Vec<_> = paged
+                .items
+                .into_iter()
+                .map(|it| StandardListViewItem::from(SharedString::from(it.display)))
+                .collect();
+
+            let cur_p = paged.current_page as i32 + 1;
+            let tot_p = paged.total_pages as i32;
+            let total_m = paged.total_matches;
+
+            let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                ui.set_editor_entries(ModelRc::from(Rc::new(VecModel::from(list_items))));
+                ui.set_current_page(cur_p);
+                ui.set_total_pages(tot_p);
+                ui.set_page_info(
+                    format!("Page {} of {} ({} records)", cur_p, tot_p, total_m).into(),
+                );
+            });
+        });
+    });
+
+    // 3. Select entry and populate inspector
     let ui_weak_sel = ui.as_weak();
-    let cache_sel = items_cache.clone();
+    let displayed_sel = displayed_items.clone();
     let p_gen_sel = preview_generation.clone();
     let p_tx_sel = preview_tx.clone();
 
     ui.on_select_editor_entry(move |idx| {
-        let cache = cache_sel.lock().unwrap();
-        if let Some(item) = cache.get(idx as usize) {
+        if idx < 0 {
+            return;
+        }
+
+        let item_opt = {
+            let cache = displayed_sel.lock().unwrap();
+            cache.get(idx as usize).cloned().or_else(|| {
+                cache
+                    .iter()
+                    .find(|it| it.record_index == idx as usize)
+                    .cloned()
+            })
+        };
+
+        if let Some(item) = item_opt {
             if item.id_str.is_empty() {
                 return;
             }
@@ -204,12 +311,14 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
             let p11 = item.p11.clone();
             let p12 = item.p12.clone();
             let l = item.labels.clone();
-            drop(cache);
 
             let task_gen = p_gen_sel.fetch_add(1, Ordering::SeqCst) + 1;
             let tx = p_tx_sel.clone();
 
             let _ = ui_weak_sel.upgrade_in_event_loop(move |ui| {
+                let node_id = id.parse::<i32>().unwrap_or(-1);
+                ui.set_selected_node_id(node_id);
+
                 ui.set_editor_field_id(id.clone().into());
                 ui.set_editor_field_val1(val1.clone().into());
                 ui.set_editor_field_val2(val2.clone().into());
@@ -257,30 +366,43 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         }
     });
 
-    // 3. Save entry
+    // 4. Safe entry save using verified absolute record_index
     let u_save = undo_stack.clone();
     let r_save = redo_stack.clone();
     let log_save = logger.clone();
     let ui_w_save = ui.as_weak();
+    let displayed_save = displayed_items.clone();
+
     ui.on_save_editor_entry(move |cff_dir, cat, idx, fields_model| {
         let dir = PathBuf::from(cff_dir.as_str());
         let c = cat.to_string();
         let log = log_save.clone();
         let ui_w = ui_w_save.clone();
 
+        let real_record_index = {
+            let lock = displayed_save.lock().unwrap();
+            lock.get(idx as usize)
+                .map(|item| item.record_index)
+                .unwrap_or(idx as usize)
+        };
+
         let fields: Vec<String> = fields_model.iter().map(|s| s.to_string()).collect();
         let u_stack = u_save.clone();
         let r_stack = r_save.clone();
 
         thread::spawn(move || {
-            if let Err(e) = cff::save_editor_item(&dir, &c, idx as usize, &fields) {
+            if let Err(e) = cff::save_editor_item(&dir, &c, real_record_index, &fields) {
                 log.log(&format!("[!] Editor Save Error: {}", e));
             } else {
-                log.log(&format!("[+] Saved entry: {:?}", fields.first()));
+                log.log(&format!(
+                    "[+] Successfully saved record (Chunk Index #{}) [ID: {:?}]",
+                    real_record_index,
+                    fields.first()
+                ));
                 u_stack.lock().unwrap().push(HistoryItem {
                     cff_dir: dir,
                     category: c,
-                    idx: idx as usize,
+                    record_index: real_record_index,
                     saved_fields: fields,
                 });
                 r_stack.lock().unwrap().clear();
@@ -296,7 +418,154 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         });
     });
 
-    // 4. Load Quest Node Graph
+    // 5. Safe Undo using absolute record_index
+    let u_act = undo_stack.clone();
+    let r_act = redo_stack.clone();
+    let ui_w_undo = ui.as_weak();
+    let log_undo = logger.clone();
+    ui.on_editor_undo(move || {
+        if let Some(item) = u_act.lock().unwrap().pop() {
+            let u_s = u_act.clone();
+            let r_s = r_act.clone();
+            let log = log_undo.clone();
+            let ui_w = ui_w_undo.clone();
+            thread::spawn(move || {
+                if let Ok(()) = cff::save_editor_item(
+                    &item.cff_dir,
+                    &item.category,
+                    item.record_index,
+                    &item.saved_fields,
+                ) {
+                    log.log(&format!(
+                        "[*] Reverted changes for Record #{} (Undo).",
+                        item.record_index
+                    ));
+                    r_s.lock().unwrap().push(item.clone());
+                    let can_u = !u_s.lock().unwrap().is_empty();
+                    let can_r = !r_s.lock().unwrap().is_empty();
+                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                        ui.set_can_undo(can_u);
+                        ui.set_can_redo(can_r);
+                    });
+                }
+            });
+        }
+    });
+
+    // 6. Safe Redo using absolute record_index
+    let u_redo = undo_stack;
+    let r_redo = redo_stack;
+    let ui_w_redo = ui.as_weak();
+    let log_redo = logger.clone();
+    ui.on_editor_redo(move || {
+        if let Some(item) = r_redo.lock().unwrap().pop() {
+            let u_s = u_redo.clone();
+            let r_s = r_redo.clone();
+            let log = log_redo.clone();
+            let ui_w = ui_w_redo.clone();
+            thread::spawn(move || {
+                if let Ok(()) = cff::save_editor_item(
+                    &item.cff_dir,
+                    &item.category,
+                    item.record_index,
+                    &item.saved_fields,
+                ) {
+                    log.log(&format!(
+                        "[*] Reapplied changes for Record #{} (Redo).",
+                        item.record_index
+                    ));
+                    u_s.lock().unwrap().push(item.clone());
+                    let can_u = !u_s.lock().unwrap().is_empty();
+                    let can_r = !r_s.lock().unwrap().is_empty();
+                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                        ui.set_can_undo(can_u);
+                        ui.set_can_redo(can_r);
+                    });
+                }
+            });
+        }
+    });
+
+    // 7. Record Operations: Add, Duplicate, Delete
+    let log_add = logger.clone();
+    let ui_w_add = ui.as_weak();
+    ui.on_add_editor_entry(move |cff_dir, cat| {
+        let dir = PathBuf::from(cff_dir.as_str());
+        let c = cat.to_string();
+        let log = log_add.clone();
+        let ui_w = ui_w_add.clone();
+        thread::spawn(move || match cff::add_editor_item(&dir, &c) {
+            Ok(new_id) => {
+                log.log(&format!("[+] Created new entry: {}", new_id));
+                let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                    ui.set_status_msg("New record created.".into());
+                });
+            }
+            Err(e) => log.log(&format!("[!] Error creating record: {}", e)),
+        });
+    });
+
+    let log_dup = logger.clone();
+    let ui_w_dup = ui.as_weak();
+    let displayed_dup = displayed_items.clone();
+    ui.on_duplicate_editor_entry(move |cff_dir, cat, idx, id| {
+        let dir = PathBuf::from(cff_dir.as_str());
+        let c = cat.to_string();
+        let id_s = id.to_string();
+        let log = log_dup.clone();
+        let ui_w = ui_w_dup.clone();
+
+        let real_record_index = {
+            let lock = displayed_dup.lock().unwrap();
+            lock.get(idx as usize)
+                .map(|item| item.record_index)
+                .unwrap_or(idx as usize)
+        };
+
+        thread::spawn(move || {
+            match cff::duplicate_editor_item(&dir, &c, real_record_index, &id_s) {
+                Ok(new_id) => {
+                    log.log(&format!("[+] Duplicated entry: {} -> {}", id_s, new_id));
+                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                        ui.set_status_msg("Record duplicated.".into());
+                    });
+                }
+                Err(e) => log.log(&format!("[!] Error duplicating record: {}", e)),
+            }
+        });
+    });
+
+    let log_del = logger.clone();
+    let ui_w_del = ui.as_weak();
+    let displayed_del = displayed_items.clone();
+    ui.on_delete_editor_entry(move |cff_dir, cat, idx, id| {
+        let dir = PathBuf::from(cff_dir.as_str());
+        let c = cat.to_string();
+        let id_s = id.to_string();
+        let log = log_del.clone();
+        let ui_w = ui_w_del.clone();
+
+        let real_record_index = {
+            let lock = displayed_del.lock().unwrap();
+            lock.get(idx as usize)
+                .map(|item| item.record_index)
+                .unwrap_or(idx as usize)
+        };
+
+        thread::spawn(
+            move || match cff::delete_editor_item(&dir, &c, real_record_index, &id_s) {
+                Ok(()) => {
+                    log.log(&format!("[+] Deleted entry: {}", id_s));
+                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                        ui.set_status_msg("Record deleted.".into());
+                    });
+                }
+                Err(e) => log.log(&format!("[!] Error deleting record: {}", e)),
+            },
+        );
+    });
+
+    // 8. Cycle-safe Quest Node Graph Loader
     let ui_w_graph = ui.as_weak();
     let log_graph = logger.clone();
     ui.on_load_quest_graph(move |cff_dir| {
@@ -336,137 +605,14 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
                     ui.set_graph_nodes(ModelRc::from(Rc::new(VecModel::from(slint_nodes))));
                     ui.set_graph_edges(ModelRc::from(Rc::new(VecModel::from(slint_edges))));
                     ui.set_status_msg(
-                        format!("Generated Quest Graph with {} nodes.", count).into(),
+                        format!("Generated Cycle-Safe Quest Graph ({} nodes).", count).into(),
                     );
                 });
             }
         });
     });
 
-    // 5. Undo
-    let u_act = undo_stack.clone();
-    let r_act = redo_stack.clone();
-    let ui_w_undo = ui.as_weak();
-    let log_undo = logger.clone();
-    ui.on_editor_undo(move || {
-        if let Some(item) = u_act.lock().unwrap().pop() {
-            let u_s = u_act.clone();
-            let r_s = r_act.clone();
-            let log = log_undo.clone();
-            let ui_w = ui_w_undo.clone();
-            thread::spawn(move || {
-                if let Ok(()) = cff::save_editor_item(
-                    &item.cff_dir,
-                    &item.category,
-                    item.idx,
-                    &item.saved_fields,
-                ) {
-                    log.log("[*] Reverted last change (Undo).");
-                    r_s.lock().unwrap().push(item.clone());
-                    let can_u = !u_s.lock().unwrap().is_empty();
-                    let can_r = !r_s.lock().unwrap().is_empty();
-                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
-                        ui.set_can_undo(can_u);
-                        ui.set_can_redo(can_r);
-                    });
-                }
-            });
-        }
-    });
-
-    // 6. Redo
-    let u_redo = undo_stack;
-    let r_redo = redo_stack;
-    let ui_w_redo = ui.as_weak();
-    let log_redo = logger.clone();
-    ui.on_editor_redo(move || {
-        if let Some(item) = r_redo.lock().unwrap().pop() {
-            let u_s = u_redo.clone();
-            let r_s = r_redo.clone();
-            let log = log_redo.clone();
-            let ui_w = ui_w_redo.clone();
-            thread::spawn(move || {
-                if let Ok(()) = cff::save_editor_item(
-                    &item.cff_dir,
-                    &item.category,
-                    item.idx,
-                    &item.saved_fields,
-                ) {
-                    log.log("[*] Reapplied change (Redo).");
-                    u_s.lock().unwrap().push(item.clone());
-                    let can_u = !u_s.lock().unwrap().is_empty();
-                    let can_r = !r_s.lock().unwrap().is_empty();
-                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
-                        ui.set_can_undo(can_u);
-                        ui.set_can_redo(can_r);
-                    });
-                }
-            });
-        }
-    });
-
-    // 7. Record Operations: Add, Duplicate, Delete
-    let log_add = logger.clone();
-    let ui_w_add = ui.as_weak();
-    ui.on_add_editor_entry(move |cff_dir, cat| {
-        let dir = PathBuf::from(cff_dir.as_str());
-        let c = cat.to_string();
-        let log = log_add.clone();
-        let ui_w = ui_w_add.clone();
-        thread::spawn(move || match cff::add_editor_item(&dir, &c) {
-            Ok(new_id) => {
-                log.log(&format!("[+] Created new entry: {}", new_id));
-                let _ = ui_w.upgrade_in_event_loop(move |ui| {
-                    ui.set_status_msg("New record created.".into());
-                });
-            }
-            Err(e) => log.log(&format!("[!] Error creating record: {}", e)),
-        });
-    });
-
-    let log_dup = logger.clone();
-    let ui_w_dup = ui.as_weak();
-    ui.on_duplicate_editor_entry(move |cff_dir, cat, idx, id| {
-        let dir = PathBuf::from(cff_dir.as_str());
-        let c = cat.to_string();
-        let id_s = id.to_string();
-        let log = log_dup.clone();
-        let ui_w = ui_w_dup.clone();
-        thread::spawn(
-            move || match cff::duplicate_editor_item(&dir, &c, idx as usize, &id_s) {
-                Ok(new_id) => {
-                    log.log(&format!("[+] Duplicated entry: {} -> {}", id_s, new_id));
-                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
-                        ui.set_status_msg("Record duplicated.".into());
-                    });
-                }
-                Err(e) => log.log(&format!("[!] Error duplicating record: {}", e)),
-            },
-        );
-    });
-
-    let log_del = logger.clone();
-    let ui_w_del = ui.as_weak();
-    ui.on_delete_editor_entry(move |cff_dir, cat, idx, id| {
-        let dir = PathBuf::from(cff_dir.as_str());
-        let c = cat.to_string();
-        let id_s = id.to_string();
-        let log = log_del.clone();
-        let ui_w = ui_w_del.clone();
-        thread::spawn(
-            move || match cff::delete_editor_item(&dir, &c, idx as usize, &id_s) {
-                Ok(()) => {
-                    log.log(&format!("[+] Deleted entry: {}", id_s));
-                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
-                        ui.set_status_msg("Record deleted.".into());
-                    });
-                }
-                Err(e) => log.log(&format!("[!] Error deleting record: {}", e)),
-            },
-        );
-    });
-
-    // 8. Multi-Language Slot Tools
+    // 9. Multi-Language Single Language Export
     let log_exp = logger.clone();
     ui.on_export_single_language(move |cff_dir, lang, out_json| {
         let dir = PathBuf::from(cff_dir.as_str());
@@ -478,6 +624,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         });
     });
 
+    // 10. Multi-Language Single Language Import
     let log_imp = logger.clone();
     ui.on_import_language_to_slot(move |cff_dir, lang, in_json| {
         let dir = PathBuf::from(cff_dir.as_str());
@@ -489,7 +636,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         });
     });
 
-    // 9. Language Slot Clone Wizard
+    // 11. One-Click Language Slot Clone Wizard
     let log_wizard = logger;
     let ui_w_wizard = ui.as_weak();
     ui.on_execute_clone_language(move |cff_dir, src, dst, tag, out_json| {

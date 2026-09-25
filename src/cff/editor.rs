@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Default)]
 pub struct EditorItem {
+    pub record_index: usize, // Absolute zero-based index in the raw binary chunk (.dat)
     pub id_str: String,
     pub val1: String,
     pub val2: String,
@@ -30,6 +31,14 @@ pub struct EditorItem {
     pub p12: String,
     pub labels: [String; 12],
     pub display: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PagedResult {
+    pub items: Vec<EditorItem>,
+    pub total_matches: usize,
+    pub current_page: usize,
+    pub total_pages: usize,
 }
 
 pub struct SpellVisualDetails {
@@ -84,183 +93,71 @@ pub fn get_available_categories(cff_dir: &Path) -> Vec<String> {
     ]
 }
 
-fn get_pak_order_key(path: &Path) -> (u32, String) {
-    let stem = path
-        .file_stem()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_lowercase();
-    let num_str: String = stem.chars().filter(|c| c.is_ascii_digit()).collect();
-    let num = num_str.parse::<u32>().unwrap_or(0);
-    (num, stem)
-}
-
-fn collect_sorted_paks(dir: &Path) -> Vec<PathBuf> {
-    let mut paks = Vec::new();
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.filter_map(|e| e.ok()) {
-            let p = entry.path();
-            if p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("pak") {
-                paks.push(p);
-            }
+pub fn load_all_category_items(cff_dir: &Path, category: &str) -> Vec<EditorItem> {
+    if category.contains("0x2335") || category.contains("0x234E") || category.contains("0x2330") {
+        let mut items = load_sf2_items(cff_dir, category, "");
+        for (i, it) in items.iter_mut().enumerate() {
+            it.record_index = i;
         }
+        items
+    } else if category != "Localized Strings" {
+        let mut items = load_sf1_items(cff_dir, category, "");
+        for (i, it) in items.iter_mut().enumerate() {
+            it.record_index = i;
+        }
+        items
+    } else {
+        load_localized_strings_all(cff_dir, "", "All Languages")
     }
-    paks.sort_by_key(|a| get_pak_order_key(a));
-    paks
 }
 
-pub fn find_and_load_texture(
+pub fn load_editor_items_paged(
     cff_dir: &Path,
-    asset_source: &Path,
-    mesh_name: &str,
-) -> Option<(image::RgbaImage, String)> {
-    let clean_name = mesh_name
-        .trim()
-        .trim_end_matches(".msh")
-        .trim_end_matches(".msb");
+    category: &str,
+    filter: &str,
+    lang_filter: &str,
+    page: usize,
+    page_size: usize,
+) -> PagedResult {
+    let all_items = load_all_category_items(cff_dir, category);
+    let filter_lower = filter.trim().to_lowercase();
 
-    if clean_name.is_empty() {
-        return None;
-    }
-
-    let extensions = ["dds", "tga", "png"];
-
-    if asset_source.is_file() {
-        if let Some((bytes, fname)) =
-            crate::pak::read_file_from_pak(asset_source, clean_name, &extensions)
-        {
-            return decode_raw_texture_bytes(&bytes, &fname);
-        }
-    } else if asset_source.is_dir() {
-        if let Some(res) = check_loose_texture_dirs(asset_source, clean_name, &extensions) {
-            return Some(res);
-        }
-        let sorted_paks = collect_sorted_paks(asset_source);
-        for pak_path in sorted_paks.iter().rev() {
-            if let Some((bytes, fname)) =
-                crate::pak::read_file_from_pak(pak_path, clean_name, &extensions)
-            {
-                return decode_raw_texture_bytes(&bytes, &fname);
-            }
-        }
-    }
-
-    let mut search_dirs = Vec::new();
-    search_dirs.push(cff_dir.to_path_buf());
-    if let Some(p) = cff_dir.parent() {
-        search_dirs.push(p.to_path_buf());
-        if let Some(gp) = p.parent() {
-            search_dirs.push(gp.to_path_buf());
-        }
-    }
-
-    for dir in &search_dirs {
-        if let Some(res) = check_loose_texture_dirs(dir, clean_name, &extensions) {
-            return Some(res);
-        }
-        let sorted_paks = collect_sorted_paks(dir);
-        for pak_path in sorted_paks.iter().rev() {
-            if let Some((bytes, fname)) =
-                crate::pak::read_file_from_pak(pak_path, clean_name, &extensions)
-            {
-                return decode_raw_texture_bytes(&bytes, &fname);
-            }
-        }
-    }
-
-    None
-}
-
-fn check_loose_texture_dirs(
-    base_dir: &Path,
-    clean_name: &str,
-    extensions: &[&str],
-) -> Option<(image::RgbaImage, String)> {
-    let check_dirs = vec![
-        base_dir.to_path_buf(),
-        base_dir.join("textures"),
-        base_dir.join("textures").join("gui"),
-        base_dir.join("textures").join("ui"),
-        base_dir.join("ui"),
-        base_dir.join("gui"),
-    ];
-
-    for d in check_dirs {
-        if !d.is_dir() {
-            continue;
-        }
-        for ext in extensions {
-            let f = d.join(format!("{}.{}", clean_name, ext));
-            if f.is_file()
-                && let Ok(bytes) = fs::read(&f)
-            {
-                let fname = f.file_name().unwrap().to_string_lossy().to_string();
-                return decode_raw_texture_bytes(&bytes, &fname);
-            }
-        }
-    }
-    None
-}
-
-fn decode_raw_texture_bytes(bytes: &[u8], filename: &str) -> Option<(image::RgbaImage, String)> {
-    if filename.to_lowercase().ends_with(".dds") {
-        if let Ok(rgba) = crate::dds::decode_dds_to_rgba(bytes, Some(128)) {
-            return Some((rgba, filename.to_string()));
-        }
-    } else if let Ok(dyn_img) = image::load_from_memory(bytes) {
-        return Some((dyn_img.into_rgba8(), filename.to_string()));
-    }
-    None
-}
-
-pub fn resolve_spell_cross_reference(
-    cff_dir: &Path,
-    spell_id: u16,
-    scroll_id: u16,
-) -> SpellVisualDetails {
-    let mut spell_mesh = String::new();
-    let mut scroll_mesh = String::new();
-
-    let manifest_path = cff_dir.join("manifest.json");
-    if let Ok(m_str) = fs::read_to_string(manifest_path)
-        && let Ok(manifest) = serde_json::from_str::<Manifest>(&m_str)
-        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC)
-    {
-        let chunk_path = cff_dir.join(&chunk.file);
-        if let Ok(bytes) = fs::read(chunk_path) {
-            let count = bytes.len() / 69;
-            for i in 0..count {
-                let offset = i * 69;
-                let id = Cursor::new(&bytes[offset..offset + 2])
-                    .read_u16::<LittleEndian>()
-                    .unwrap_or(0);
-                let flag = bytes[offset + 2];
-                let mesh_bytes = &bytes[offset + 3..offset + 67];
-                let end = mesh_bytes
-                    .iter()
-                    .position(|&b| b == 0)
-                    .unwrap_or(mesh_bytes.len());
-                let m_name = decode_windows(&mesh_bytes[..end]);
-
-                if id == spell_id && (flag == 2 || spell_mesh.is_empty()) {
-                    spell_mesh = m_name.clone();
-                }
-                if id == scroll_id && (flag == 1 || scroll_mesh.is_empty()) {
-                    scroll_mesh = m_name;
+    let matching_items: Vec<EditorItem> = all_items
+        .into_iter()
+        .filter(|it| {
+            if category == "Localized Strings" && lang_filter != "All Languages" {
+                let slot = extract_slot_number(lang_filter);
+                if !it.val2.contains(&format!("Slot: {}", slot)) {
+                    return false;
                 }
             }
-        }
-    }
+            if filter_lower.is_empty() {
+                true
+            } else {
+                it.display.to_lowercase().contains(&filter_lower)
+                    || it.id_str.to_lowercase().contains(&filter_lower)
+                    || it.val1.to_lowercase().contains(&filter_lower)
+            }
+        })
+        .collect();
 
-    if scroll_mesh.is_empty() {
-        scroll_mesh = "ui_item_spellscroll".to_string();
-    }
+    let total_matches = matching_items.len();
+    let total_pages = total_matches.max(1).div_ceil(page_size);
+    let clamped_page = page.min(total_pages.saturating_sub(1));
+    let start = clamped_page * page_size;
+    let end = (start + page_size).min(total_matches);
 
-    SpellVisualDetails {
-        spell_name: format!("Spell #{}", spell_id),
-        spell_mesh,
-        scroll_name: format!("Scroll #{}", scroll_id),
-        scroll_mesh,
+    let paged_items = if start < total_matches {
+        matching_items[start..end].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    PagedResult {
+        items: paged_items,
+        total_matches,
+        current_page: clamped_page,
+        total_pages,
     }
 }
 
@@ -270,19 +167,28 @@ pub fn load_editor_items(
     filter: &str,
     lang_filter: &str,
 ) -> Vec<EditorItem> {
-    if category.contains("0x2335") || category.contains("0x234E") || category.contains("0x2330") {
-        return load_sf2_items(cff_dir, category, filter);
-    }
-    if category != "Localized Strings" {
-        return load_sf1_items(cff_dir, category, filter);
-    }
+    let paged = load_editor_items_paged(cff_dir, category, filter, lang_filter, 0, 100_000);
+    paged.items
+}
 
-    const MAX_UNFILTERED_ITEMS: usize = 1000;
+fn extract_slot_number(lang_filter: &str) -> u8 {
+    if let Some(pos) = lang_filter.find("Slot ") {
+        let remainder = &lang_filter[pos + 5..];
+        let num_str: String = remainder
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        num_str.parse::<u8>().unwrap_or(1)
+    } else {
+        1
+    }
+}
+
+fn load_localized_strings_all(cff_dir: &Path, filter: &str, lang_filter: &str) -> Vec<EditorItem> {
     let mut items = Vec::new();
     let filter_lower = filter.to_lowercase();
     let tags = get_language_tag_map(cff_dir);
     let json_dir = cff_dir.join("texts_json");
-    let mut total_matches = 0;
 
     if let Ok(entries) = fs::read_dir(json_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
@@ -294,8 +200,12 @@ pub fn load_editor_items(
             {
                 let fname = path.file_stem().unwrap().to_string_lossy().to_string();
                 for (k, v) in map {
-                    let (l_id, b_id, camp_id, lang_tag) = if k.starts_with("f566_") {
+                    let (l_id, b_id, camp_id, lang_tag, real_rec_idx) = if k.starts_with("f566_") {
                         let parts: Vec<&str> = k.split('_').collect();
+                        let offset = parts
+                            .get(1)
+                            .and_then(|s| s.parse::<usize>().ok())
+                            .unwrap_or(0);
                         let str_id = parts
                             .get(2)
                             .and_then(|s| s.parse::<u32>().ok())
@@ -307,9 +217,9 @@ pub fn load_editor_items(
                             .get(&lang)
                             .cloned()
                             .unwrap_or_else(|| format!("L{}", lang));
-                        (lang, base, camp, tag)
+                        (lang, base, camp, tag, offset / 566)
                     } else {
-                        (1, 0, 0, "TXT".to_string())
+                        (1, 0, 0, "TXT".to_string(), 0)
                     };
 
                     if lang_filter != "All Languages"
@@ -326,55 +236,37 @@ pub fn load_editor_items(
 
                     let display = format!("[{}]{} #{:<5} | {}", lang_tag, camp_str, b_id, v);
                     if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
-                        total_matches += 1;
-                        if items.len() < MAX_UNFILTERED_ITEMS {
-                            items.push(EditorItem {
-                                id_str: format!("{}:{}", fname, k),
-                                val1: v.clone(),
-                                val2: format!(
-                                    "Slot: {} ({}){} | Base ID: {}",
-                                    l_id, lang_tag, camp_str, b_id
-                                ),
-                                display,
-                                ..Default::default()
-                            });
-                        }
+                        items.push(EditorItem {
+                            record_index: real_rec_idx,
+                            id_str: format!("{}:{}", fname, k),
+                            val1: v.clone(),
+                            val2: format!(
+                                "Slot: {} ({}){} | Base ID: {}",
+                                l_id, lang_tag, camp_str, b_id
+                            ),
+                            display,
+                            ..Default::default()
+                        });
                     }
                 }
             }
         }
     }
-
-    if total_matches > MAX_UNFILTERED_ITEMS {
-        items.push(EditorItem {
-            val2: format!(
-                "Displaying first {} of {} total entries.",
-                MAX_UNFILTERED_ITEMS, total_matches
-            ),
-            display: format!(
-                "--- [Showing first {} of {} strings. Refine search filter to narrow results] ---",
-                MAX_UNFILTERED_ITEMS, total_matches
-            ),
-            ..Default::default()
-        });
-    }
-
     items
 }
 
 pub fn save_editor_item(
     cff_dir: &Path,
     category: &str,
-    index: usize,
+    record_index: usize,
     fields: &[String],
 ) -> io::Result<()> {
     if category.contains("0x2335") || category.contains("0x234E") || category.contains("0x2330") {
-        let val1 = fields.get(1).map(|s| s.as_str()).unwrap_or("");
-        return save_sf2_item(cff_dir, category, index, val1);
+        return save_sf2_item(cff_dir, category, record_index, fields);
     }
 
     if category != "Localized Strings" {
-        return save_sf1_item(cff_dir, category, index, fields);
+        return save_sf1_item(cff_dir, category, record_index, fields);
     }
 
     let id_str = fields.first().map(|s| s.as_str()).unwrap_or("");
@@ -557,7 +449,7 @@ pub fn add_editor_item(cff_dir: &Path, category: &str) -> io::Result<String> {
 pub fn duplicate_editor_item(
     cff_dir: &Path,
     category: &str,
-    index: usize,
+    record_index: usize,
     id_str: &str,
 ) -> io::Result<String> {
     let manifest_path = cff_dir.join("manifest.json");
@@ -569,7 +461,7 @@ pub fn duplicate_editor_item(
         if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC) {
             let chunk_path = cff_dir.join(&chunk.file);
             let mut bytes = fs::read(&chunk_path)?;
-            let offset = index * 69;
+            let offset = record_index * 69;
             if offset + 69 <= bytes.len() {
                 let mut max_id = 0u16;
                 let num_records = bytes.len() / 69;
@@ -593,7 +485,7 @@ pub fn duplicate_editor_item(
         if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E2) {
             let chunk_path = cff_dir.join(&chunk.file);
             let mut bytes = fs::read(&chunk_path)?;
-            let offset = index * 4;
+            let offset = record_index * 4;
             if offset + 4 <= bytes.len() {
                 let mut max_id = 0u16;
                 let num_records = bytes.len() / 4;
@@ -681,7 +573,7 @@ pub fn duplicate_editor_item(
 pub fn delete_editor_item(
     cff_dir: &Path,
     category: &str,
-    index: usize,
+    record_index: usize,
     id_str: &str,
 ) -> io::Result<()> {
     let manifest_path = cff_dir.join("manifest.json");
@@ -693,7 +585,7 @@ pub fn delete_editor_item(
         if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC) {
             let chunk_path = cff_dir.join(&chunk.file);
             let mut bytes = fs::read(&chunk_path)?;
-            let offset = index * 69;
+            let offset = record_index * 69;
             if offset + 69 <= bytes.len() {
                 bytes.drain(offset..offset + 69);
                 crate::tools::atomic_write(&chunk_path, &bytes)?;
@@ -704,7 +596,7 @@ pub fn delete_editor_item(
         if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E2) {
             let chunk_path = cff_dir.join(&chunk.file);
             let mut bytes = fs::read(&chunk_path)?;
-            let offset = index * 4;
+            let offset = record_index * 4;
             if offset + 4 <= bytes.len() {
                 bytes.drain(offset..offset + 4);
                 crate::tools::atomic_write(&chunk_path, &bytes)?;
@@ -763,4 +655,184 @@ pub fn delete_editor_item(
         }
     }
     Err(io::Error::other("Failed to delete record"))
+}
+
+fn get_pak_order_key(path: &Path) -> (u32, String) {
+    let stem = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_lowercase();
+    let num_str: String = stem.chars().filter(|c| c.is_ascii_digit()).collect();
+    let num = num_str.parse::<u32>().unwrap_or(0);
+    (num, stem)
+}
+
+fn collect_sorted_paks(dir: &Path) -> Vec<PathBuf> {
+    let mut paks = Vec::new();
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let p = entry.path();
+            if p.is_file() && p.extension().and_then(|s| s.to_str()) == Some("pak") {
+                paks.push(p);
+            }
+        }
+    }
+    paks.sort_by_key(|a| get_pak_order_key(a));
+    paks
+}
+
+pub fn find_and_load_texture(
+    cff_dir: &Path,
+    asset_source: &Path,
+    mesh_name: &str,
+) -> Option<(image::RgbaImage, String)> {
+    let clean_name = mesh_name
+        .trim()
+        .trim_end_matches(".msh")
+        .trim_end_matches(".msb");
+
+    if clean_name.is_empty() {
+        return None;
+    }
+
+    let extensions = ["dds", "tga", "png"];
+
+    if asset_source.is_file() {
+        if let Some((bytes, fname)) =
+            crate::pak::read_file_from_pak(asset_source, clean_name, &extensions)
+        {
+            return decode_raw_texture_bytes(&bytes, &fname);
+        }
+    } else if asset_source.is_dir() {
+        if let Some(res) = check_loose_texture_dirs(asset_source, clean_name, &extensions) {
+            return Some(res);
+        }
+        let sorted_paks = collect_sorted_paks(asset_source);
+        for pak_path in sorted_paks.iter().rev() {
+            if let Some((bytes, fname)) =
+                crate::pak::read_file_from_pak(pak_path, clean_name, &extensions)
+            {
+                return decode_raw_texture_bytes(&bytes, &fname);
+            }
+        }
+    }
+
+    let mut search_dirs = Vec::new();
+    search_dirs.push(cff_dir.to_path_buf());
+    if let Some(p) = cff_dir.parent() {
+        search_dirs.push(p.to_path_buf());
+        if let Some(gp) = p.parent() {
+            search_dirs.push(gp.to_path_buf());
+        }
+    }
+
+    for dir in &search_dirs {
+        if let Some(res) = check_loose_texture_dirs(dir, clean_name, &extensions) {
+            return Some(res);
+        }
+        let sorted_paks = collect_sorted_paks(dir);
+        for pak_path in sorted_paks.iter().rev() {
+            if let Some((bytes, fname)) =
+                crate::pak::read_file_from_pak(pak_path, clean_name, &extensions)
+            {
+                return decode_raw_texture_bytes(&bytes, &fname);
+            }
+        }
+    }
+
+    None
+}
+
+fn check_loose_texture_dirs(
+    base_dir: &Path,
+    clean_name: &str,
+    extensions: &[&str],
+) -> Option<(image::RgbaImage, String)> {
+    let check_dirs = vec![
+        base_dir.to_path_buf(),
+        base_dir.join("textures"),
+        base_dir.join("textures").join("gui"),
+        base_dir.join("textures").join("ui"),
+        base_dir.join("ui"),
+        base_dir.join("gui"),
+    ];
+
+    for d in check_dirs {
+        if !d.is_dir() {
+            continue;
+        }
+        for ext in extensions {
+            let f = d.join(format!("{}.{}", clean_name, ext));
+            if f.is_file()
+                && let Ok(bytes) = fs::read(&f)
+            {
+                let fname = f.file_name().unwrap().to_string_lossy().to_string();
+                return decode_raw_texture_bytes(&bytes, &fname);
+            }
+        }
+    }
+    None
+}
+
+fn decode_raw_texture_bytes(bytes: &[u8], filename: &str) -> Option<(image::RgbaImage, String)> {
+    if filename.to_lowercase().ends_with(".dds") {
+        if let Ok(rgba) = crate::dds::decode_dds_to_rgba(bytes, Some(128)) {
+            return Some((rgba, filename.to_string()));
+        }
+    } else if let Ok(dyn_img) = image::load_from_memory(bytes) {
+        return Some((dyn_img.into_rgba8(), filename.to_string()));
+    }
+    None
+}
+
+pub fn resolve_spell_cross_reference(
+    cff_dir: &Path,
+    spell_id: u16,
+    scroll_id: u16,
+) -> SpellVisualDetails {
+    let mut spell_mesh = String::new();
+    let mut scroll_mesh = String::new();
+
+    let manifest_path = cff_dir.join("manifest.json");
+    if let Ok(m_str) = fs::read_to_string(manifest_path)
+        && let Ok(manifest) = serde_json::from_str::<Manifest>(&m_str)
+        && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC)
+    {
+        let chunk_path = cff_dir.join(&chunk.file);
+        if let Ok(bytes) = fs::read(chunk_path) {
+            let count = bytes.len() / 69;
+            for i in 0..count {
+                let offset = i * 69;
+                let id = Cursor::new(&bytes[offset..offset + 2])
+                    .read_u16::<LittleEndian>()
+                    .unwrap_or(0);
+                let flag = bytes[offset + 2];
+                let mesh_bytes = &bytes[offset + 3..offset + 67];
+                let end = mesh_bytes
+                    .iter()
+                    .position(|&b| b == 0)
+                    .unwrap_or(mesh_bytes.len());
+                let m_name = decode_windows(&mesh_bytes[..end]);
+
+                if id == spell_id && (flag == 2 || spell_mesh.is_empty()) {
+                    spell_mesh = m_name.clone();
+                }
+                if id == scroll_id && (flag == 1 || scroll_mesh.is_empty()) {
+                    scroll_mesh = m_name;
+                }
+            }
+        }
+    }
+
+    if scroll_mesh.is_empty() {
+        scroll_mesh = "ui_item_spellscroll".to_string();
+    }
+
+    SpellVisualDetails {
+        spell_name: format!("Spell #{}", spell_id),
+        spell_mesh,
+        scroll_name: format!("Scroll #{}", scroll_id),
+        scroll_mesh,
+    }
 }

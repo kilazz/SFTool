@@ -3,7 +3,7 @@
 use super::container::Manifest;
 use super::sf1_schema::{QuestEntry, Sf1Record};
 use crate::UiLogger;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -36,8 +36,10 @@ pub struct QuestNode {
 
 struct GraphBuilder<'a> {
     tree: &'a BTreeMap<u32, QuestNode>,
+    names: &'a HashMap<u16, String>,
     nodes: Vec<VisualGraphNode>,
     edges: Vec<VisualGraphEdge>,
+    visited: HashSet<u32>,
     current_y: f32,
     node_w: f32,
     node_h: f32,
@@ -46,13 +48,15 @@ struct GraphBuilder<'a> {
 }
 
 impl<'a> GraphBuilder<'a> {
-    fn new(tree: &'a BTreeMap<u32, QuestNode>) -> Self {
+    fn new(tree: &'a BTreeMap<u32, QuestNode>, names: &'a HashMap<u16, String>) -> Self {
         Self {
             tree,
+            names,
             nodes: Vec::new(),
             edges: Vec::new(),
+            visited: HashSet::new(),
             current_y: 40.0,
-            node_w: 200.0,
+            node_w: 240.0, // Wider cards to fit real quest names
             node_h: 70.0,
             col_gap: 100.0,
             row_gap: 25.0,
@@ -60,6 +64,13 @@ impl<'a> GraphBuilder<'a> {
     }
 
     fn layout_subtree(&mut self, node_id: u32, depth: usize) -> (f32, f32) {
+        if depth > 64 || !self.visited.insert(node_id) {
+            return (
+                40.0 + depth as f32 * (self.node_w + self.col_gap),
+                self.current_y,
+            );
+        }
+
         let node = match self.tree.get(&node_id) {
             Some(n) => n,
             None => return (0.0, self.current_y),
@@ -76,8 +87,10 @@ impl<'a> GraphBuilder<'a> {
             let mut child_positions = Vec::new();
 
             for &child_id in &node.children {
-                let pos = self.layout_subtree(child_id, depth + 1);
-                child_positions.push(pos);
+                if !self.visited.contains(&child_id) {
+                    let pos = self.layout_subtree(child_id, depth + 1);
+                    child_positions.push(pos);
+                }
             }
 
             let first_y = child_positions.first().map(|p| p.1).unwrap_or(start_y);
@@ -95,7 +108,20 @@ impl<'a> GraphBuilder<'a> {
         }
 
         let is_main = node.quest.is_main_quest != 0;
-        let title = format!("Quest #{}", node.quest.quest_id);
+        let prefix = if is_main {
+            "⭐ [MAIN] "
+        } else {
+            "🔷 [SIDE] "
+        };
+
+        // Resolve real quest title from localized strings
+        let quest_name = self
+            .names
+            .get(&node.quest.name_id)
+            .cloned()
+            .unwrap_or_else(|| format!("Quest #{}", node.quest.quest_id));
+
+        let title = format!("{}[#{}] {}", prefix, node.quest.quest_id, quest_name);
         let subtitle = format!(
             "Order: {} | NameID: {}",
             node.quest.order_index, node.quest.name_id
@@ -115,6 +141,37 @@ impl<'a> GraphBuilder<'a> {
 
         (x, my_y)
     }
+}
+
+/// Helper: loads localized quest titles from texts_json for graph node headers
+fn load_quest_name_lookup(cff_dir: &Path) -> HashMap<u16, String> {
+    let mut names = HashMap::new();
+    let json_dir = cff_dir.join("texts_json");
+    if let Ok(entries) = fs::read_dir(json_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("json")
+                && !path.to_string_lossy().ends_with(".meta.json")
+                && let Ok(content) = fs::read_to_string(&path)
+                && let Ok(map) = serde_json::from_str::<BTreeMap<String, String>>(&content)
+            {
+                for (k, v) in map {
+                    if k.starts_with("f566_") {
+                        let parts: Vec<&str> = k.split('_').collect();
+                        if let Some(str_id) = parts.get(2).and_then(|s| s.parse::<u32>().ok()) {
+                            let lang_id = ((str_id >> 16) & 0xFF) as u8;
+                            let base_id = (str_id & 0xFFFF) as u16;
+                            // Prefer English (Slot 1) or populate if missing
+                            if lang_id == 1 || !names.contains_key(&base_id) {
+                                names.insert(base_id, v);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    names
 }
 
 pub fn build_quest_graph_layout(
@@ -165,16 +222,21 @@ pub fn build_quest_graph_layout(
         .collect();
 
     for (p, c) in parent_child {
-        if let Some(parent) = quests.get_mut(&p) {
+        if let Some(parent) = quests.get_mut(&p)
+            && !parent.children.contains(&c)
+        {
             parent.children.push(c);
         }
     }
 
-    let mut builder = GraphBuilder::new(&quests);
+    let names = load_quest_name_lookup(cff_dir);
+    let mut builder = GraphBuilder::new(&quests, &names);
 
     for root_id in roots {
-        builder.layout_subtree(root_id, 0);
-        builder.current_y += 30.0;
+        if !builder.visited.contains(&root_id) {
+            builder.layout_subtree(root_id, 0);
+            builder.current_y += 30.0;
+        }
     }
 
     logger.log(&format!(
@@ -206,12 +268,16 @@ pub fn print_quest_ascii_tree(cff_dir: &Path, logger: &UiLogger) -> std::io::Res
         }
     }
 
+    let names = load_quest_name_lookup(cff_dir);
+
     for q in quests.values() {
         if q.parent_quest_id == 0 || q.parent_quest_id == q.quest_id {
+            let q_name = names.get(&q.name_id).cloned().unwrap_or_default();
             logger.log(&format!(
-                "+- [{}] Quest #{:<4} (Order: {}, NameID: {})",
+                "+- [{}] Quest #{:<4} \"{}\" (Order: {}, NameID: {})",
                 if q.is_main_quest != 0 { "MAIN" } else { "SIDE" },
                 q.quest_id,
+                q_name,
                 q.order_index,
                 q.name_id
             ));

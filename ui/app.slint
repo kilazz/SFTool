@@ -20,14 +20,19 @@ export component AppWindow inherits Window {
     title: "SFTool v2.2 - SpellForce Modding & Balance Studio";
     min-width: 1100px;
     min-height: 760px;
-    preferred-width: 1140px;
-    preferred-height: 800px;
+    preferred-width: 1280px;
+    preferred-height: 840px;
     background: #181818;
 
     in-out property <int> active_tab: 0;
 
-    // --- Dynamic Sidebar Resizing ---
-    in-out property <length> sidebar_width: 460px;
+    // --- Dynamic Sidebar Resizing (PAK / CFF / Lua) ---
+    in-out property <length> sidebar_width: 420px;
+
+    // --- Dynamic Column Resizing (Database Studio) ---
+    in-out property <length> col1_width: 210px;
+    in-out property <length> col2_width: 270px;
+    in-out property <length> col4_width: 360px;
 
     // --- PAK State ---
     in-out property <string> selected_pak: "";
@@ -41,7 +46,7 @@ export component AppWindow inherits Window {
     in-out property <string> selected_cff_dir: "";
     in-out property <int> persisted_cff_comp: 6;
 
-    // --- Balance Editor State ---
+    // --- Database Studio State ---
     in-out property <string> editor_cff_dir: "";
     in-out property <string> editor_asset_source: "";
     in-out property <string> editor_filter: "";
@@ -118,14 +123,16 @@ export component AppWindow inherits Window {
     in-out property <string> editor_label_p11: "";
     in-out property <string> editor_label_p12: "";
 
-    // View Mode Switcher: 0 = Table List, 1 = Node Graph
-    in-out property <int> editor_view_mode: 0;
+    // Pagination properties
+    in-out property <int> current_page: 1;
+    in-out property <int> total_pages: 1;
+    in-out property <string> page_info: "Page 1 of 1 (0 records)";
 
-    // Node Graph Properties
+    // Visual Canvas & Interactive Node Graph State
     in-out property <[GraphNodeData]> graph_nodes: [];
     in-out property <[GraphEdgeData]> graph_edges: [];
-    in-out property <length> canvas_pan_x: 0px;
-    in-out property <length> canvas_pan_y: 0px;
+    in-out property <length> canvas_pan_x: 40px;
+    in-out property <length> canvas_pan_y: 40px;
     in-out property <int> selected_node_id: -1;
 
     // Visual Previews & Dual Cards
@@ -135,7 +142,7 @@ export component AppWindow inherits Window {
     in-out property <string> scroll_name_disp: "";
     in-out property <string> asset_status_text: "Select a record to preview asset.";
 
-    // History Undo/Redo States (CFF)
+    // History Undo/Redo States
     in-out property <bool> can_undo: false;
     in-out property <bool> can_redo: false;
 
@@ -170,7 +177,7 @@ export component AppWindow inherits Window {
     in-out property <string> selected_fn_snippet: "";
     in-out property <string> selected_fn_desc: "";
 
-    // --- System / Logs ---
+    // --- System / Terminal Logs ---
     in-out property <string> log_text: "System Ready.\n";
     in-out property <string> status_msg: "Ready.";
 
@@ -194,8 +201,9 @@ export component AppWindow inherits Window {
     callback create_cff_diff(string, string, string);
     callback apply_cff_patch(string, string);
 
-    // Callbacks: Balance Editor & Graph
+    // Callbacks: Database Studio & Visual Canvas
     callback load_editor_data(string, string, string, string);
+    callback change_page(string, string, string, string, int);
     callback select_editor_entry(int);
     callback save_editor_entry(string, string, int, [string]);
     callback add_editor_entry(string, string);
@@ -255,7 +263,7 @@ export component AppWindow inherits Window {
             }
 
             TabButton {
-                text: "Balance Editor";
+                text: "Database Studio";
                 active: root.active_tab == 2;
                 accent-color: #f0b132;
                 clicked => { root.active_tab = 2; }
@@ -324,7 +332,10 @@ export component AppWindow inherits Window {
             }
 
             if root.active_tab == 2: EditorTab {
-                sidebar_width <=> root.sidebar_width;
+                col1_width <=> root.col1_width;
+                col2_width <=> root.col2_width;
+                col4_width <=> root.col4_width;
+
                 editor_cff_dir <=> root.editor_cff_dir;
                 editor_asset_source <=> root.editor_asset_source;
                 editor_filter <=> root.editor_filter;
@@ -364,7 +375,10 @@ export component AppWindow inherits Window {
                 editor_label_p11 <=> root.editor_label_p11;
                 editor_label_p12 <=> root.editor_label_p12;
 
-                editor_view_mode <=> root.editor_view_mode;
+                current_page <=> root.current_page;
+                total_pages <=> root.total_pages;
+                page_info <=> root.page_info;
+
                 graph_nodes <=> root.graph_nodes;
                 graph_edges <=> root.graph_edges;
                 canvas_pan_x <=> root.canvas_pan_x;
@@ -383,6 +397,7 @@ export component AppWindow inherits Window {
                 browse_file(ext) => { root.browse_file(ext) }
                 save_file(ext) => { root.save_file(ext) }
                 load_editor_data(dir, cat, flt, lang) => { root.load_editor_data(dir, cat, flt, lang) }
+                change_page(dir, cat, flt, lang, p) => { root.change_page(dir, cat, flt, lang, p) }
                 select_editor_entry(idx) => { root.select_editor_entry(idx) }
                 save_editor_entry(dir, cat, idx, fields) => { root.save_editor_entry(dir, cat, idx, fields) }
                 add_editor_entry(dir, cat) => { root.add_editor_entry(dir, cat) }

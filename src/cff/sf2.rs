@@ -74,7 +74,6 @@ fn set_sf2_labels(slice: &[&str]) -> [String; 12] {
     labels
 }
 
-/// Extracts the clean, primary 3D mesh path from binary buffers containing composite model parts.
 fn extract_clean_asset_path(bytes: &[u8]) -> String {
     let mut best_candidate = String::new();
     let mut current = Vec::new();
@@ -117,7 +116,6 @@ fn extract_clean_asset_path(bytes: &[u8]) -> String {
     best_candidate
 }
 
-/// Cleans and sanitizes strings into a single line to prevent Slint ListView row overlapping.
 fn sanitize_display_text(text: &str, max_len: usize) -> String {
     let mut clean = String::with_capacity(text.len());
     for c in text.chars() {
@@ -191,6 +189,7 @@ pub fn load_sf2_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             let display = format!("ID: {:<5} [SF2 Mesh] | {}", id, display_mesh);
             if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                 items.push(EditorItem {
+                    record_index: i,
                     id_str: id.to_string(),
                     val1: clean_mesh.clone(),
                     val2: format!("Record #{}", i),
@@ -212,7 +211,7 @@ pub fn load_sf2_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             .read_u32::<LittleEndian>()
             .unwrap_or(0) as usize;
         let mut offset = 4;
-        for _ in 0..count {
+        for i in 0..count {
             if offset + 4 > bytes.len() {
                 break;
             }
@@ -244,6 +243,7 @@ pub fn load_sf2_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                 let script_desc = sanitize_display_text(&decode_windows(raw_slice), 120);
                 items.push(EditorItem {
+                    record_index: i,
                     id_str: ability_id.to_string(),
                     val1: clean_icon.clone(),
                     val2: script_desc.clone(),
@@ -332,6 +332,7 @@ pub fn load_sf2_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: i,
                         id_str: item_id.to_string(),
                         val1: clean_mesh.clone(),
                         val2: extra_info.clone(),
@@ -359,15 +360,19 @@ pub fn load_sf2_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
 pub fn save_sf2_item(
     cff_dir: &Path,
     category: &str,
-    index: usize,
-    val1: &str,
+    record_index: usize,
+    fields: &[String],
 ) -> std::io::Result<()> {
     let manifest_path = cff_dir.join("manifest.json");
     let m_str = fs::read_to_string(manifest_path)?;
     let manifest: Manifest = serde_json::from_str(&m_str)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
 
-    // Handle Item Properties (0x2330)
+    let p1 = fields.get(1).map(|s| s.as_str()).unwrap_or("");
+    let p2 = fields.get(2).map(|s| s.as_str()).unwrap_or("");
+    let p3 = fields.get(3).map(|s| s.as_str()).unwrap_or("");
+
+    // Item Properties (0x2330)
     if category.contains("0x2330") {
         if let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x2330) {
             let chunk_path = cff_dir.join(&chunk.file);
@@ -379,23 +384,37 @@ pub fn save_sf2_item(
                 if let Some(stride) = bytes.len().saturating_sub(4).checked_div(count)
                     && stride > 0
                 {
-                    let base = 4 + index * stride;
+                    let base = 4 + record_index * stride;
 
-                    if base + 0x134 <= bytes.len() {
-                        let enc = encode_windows(val1);
+                    // 1. Mesh name
+                    if base + 0x134 <= bytes.len() && !p1.is_empty() {
+                        let enc = encode_windows(p1);
                         let mut padded = vec![0u8; 28];
                         let len = enc.len().min(27);
                         padded[..len].copy_from_slice(&enc[..len]);
                         bytes[base + 0x118..base + 0x134].copy_from_slice(&padded);
-                        File::create(chunk_path)?.write_all(&bytes)?;
                     }
+                    // 2. Gold Price
+                    if base + 0x114 <= bytes.len()
+                        && let Ok(price) = p2.parse::<u32>()
+                    {
+                        bytes[base + 0x110..base + 0x114].copy_from_slice(&price.to_le_bytes());
+                    }
+                    // 3. Required Level
+                    if base + 0x116 <= bytes.len()
+                        && let Ok(lvl) = p3.parse::<u16>()
+                    {
+                        bytes[base + 0x114..base + 0x116].copy_from_slice(&lvl.to_le_bytes());
+                    }
+
+                    File::create(chunk_path)?.write_all(&bytes)?;
                 }
             }
         }
         return Ok(());
     }
 
-    // Handle Visual Meshes (0x2335) and Abilities (0x234E)
+    // Visual Meshes (0x2335) or Abilities (0x234E)
     let target_id = if category.contains("0x2335") {
         0x2335
     } else if category.contains("0x234E") {
@@ -433,8 +452,8 @@ pub fn save_sf2_item(
                 Cursor::new(&bytes[offset..offset + 4]).read_u32::<LittleEndian>()? as usize;
             offset += 4;
 
-            if i == index {
-                let enc = encode_windows(val1);
+            if i == record_index {
+                let enc = encode_windows(p1);
                 out.write_u32::<LittleEndian>(enc.len() as u32)?;
                 out.write_all(&enc)?;
                 offset += str_len;

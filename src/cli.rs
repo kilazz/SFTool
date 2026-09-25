@@ -56,7 +56,10 @@ CFF Database & Integrity Commands:
       Inspect and extract all chunks and nested containers from a savegame (.sav).
 
   inspect_save <save.sav>
-      Reads and displays player avatar level, stats, and speeds directly from a savegame.
+      Reads and displays player avatar stats, speeds, equipped gear, and spellbook directly from a savegame.
+
+  modify_save <save.sav> <level> <str> <sta> <agi> <dex> <int> <wis> <cha>
+      Directly edits and overwrites Avatar stats and level inside a .sav container.
 
   verify_mod <mod_dir> [asset_pak_path]
       Pre-release mod linter: checks Lua syntax, validates texture assets, and audits DB links.
@@ -228,7 +231,7 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             if let Some(info) = crate::sav::avatar::inspect_avatar_save(Path::new(&args[2]))? {
-                println!("[+] Hero Profile from SaveGame:");
+                println!("[+] Avatar Profile from SaveGame:");
                 println!("    Level: {} (Race ID: {})", info.level, info.race_id);
                 println!(
                     "    Attributes: Str: {}, Sta: {}, Agi: {}, Dex: {}, Int: {}, Wis: {}, Cha: {}",
@@ -244,8 +247,67 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
                     "    Speeds: Walk: {}, Fight: {}, Cast: {}",
                     info.walk_speed, info.fight_speed, info.cast_speed
                 );
+
+                if !info.skills.is_empty() {
+                    println!("    Skills ({} learned):", info.skills.len());
+                    for sk in &info.skills {
+                        println!("      - Skill ID: {}, Level: {}", sk.skill_id, sk.level);
+                    }
+                }
+
+                if !info.equipment.is_empty() {
+                    println!("    Equipped Items ({} slots):", info.equipment.len());
+                    for eq in &info.equipment {
+                        println!("      - Slot {}: Item #{}", eq.slot, eq.item_id);
+                    }
+                }
+
+                if !info.spellbook.is_empty() {
+                    println!("    Spellbook ({} scribed spells):", info.spellbook.len());
+                    for sp in &info.spellbook {
+                        println!("      - Slot {}: Spell #{}", sp.slot, sp.spell_id);
+                    }
+                }
             } else {
                 println!("[-] No avatar stats found in save file.");
+            }
+        }
+
+        "modify_save" => {
+            if args.len() < 11 {
+                eprintln!(
+                    "Usage: SFTool modify_save <save.sav> <level> <str> <sta> <agi> <dex> <int> <wis> <cha>"
+                );
+                return Ok(());
+            }
+            let p = Path::new(&args[2]);
+            let lvl = args[3].parse::<u16>().unwrap_or(30);
+            let s_str = args[4].parse::<u16>().unwrap_or(100);
+            let s_sta = args[5].parse::<u16>().unwrap_or(100);
+            let s_agi = args[6].parse::<u16>().unwrap_or(100);
+            let s_dex = args[7].parse::<u16>().unwrap_or(100);
+            let s_int = args[8].parse::<u16>().unwrap_or(100);
+            let s_wis = args[9].parse::<u16>().unwrap_or(100);
+            let s_cha = args[10].parse::<u16>().unwrap_or(100);
+
+            let stats = crate::sav::avatar::AvatarStatsUpdate {
+                level: lvl,
+                strength: s_str,
+                stamina: s_sta,
+                agility: s_agi,
+                dexterity: s_dex,
+                intelligence: s_int,
+                wisdom: s_wis,
+                charisma: s_cha,
+            };
+
+            if crate::sav::avatar::modify_avatar_stats(p, &stats)? {
+                println!(
+                    "[+] Successfully updated avatar stats in save file: {:?}",
+                    p
+                );
+            } else {
+                eprintln!("[-] Failed to locate Avatar UnitStats chunk (0x07D5) in save file.");
             }
         }
 

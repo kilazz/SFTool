@@ -398,7 +398,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D2)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ SpellEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ SpellEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(e) = SpellEntry::decode(chunk_slice) {
                 let req_str = e.format_skill_reqs();
                 let faction = e.format_target_faction();
@@ -417,6 +422,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: e.spell_id.to_string(),
                         val1: e.mana_cost.to_string(),
                         val2: req_str.clone(),
@@ -457,7 +463,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0806)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ SpellLineEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ SpellLineEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(l) = SpellLineEntry::decode(chunk_slice) {
                 let school = l.format_school();
                 let aura_tag = if l.is_aura() { " [Aura]" } else { "" };
@@ -467,6 +478,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: l.line_id.to_string(),
                         val1: l.icon_name.clone(),
                         val2: school.to_string(),
@@ -504,7 +516,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07F4)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ TechTreeUpgradeEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ TechTreeUpgradeEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(u) = TechTreeUpgradeEntry::decode(chunk_slice) {
                 let display = format!(
                     "Upgrade #{:<3} [Bld: {:<3}] [{}] | Time: {}s | NameID: {}",
@@ -516,6 +533,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: u.upgrade_id.to_string(),
                         val1: u.icon_name.clone(),
                         val2: format!("Bld: {}", u.building_id),
@@ -556,7 +574,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D3)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ ItemMasterEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ ItemMasterEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(e) = ItemMasterEntry::decode(chunk_slice) {
                 let display = format!(
                     "Item #{:<5} | Buy: {:<6}c | Sell: {:<6}c | Type: ({}, {})",
@@ -564,6 +587,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: e.item_id.to_string(),
                         val1: e.buy_value.to_string(),
                         val2: e.sell_value.to_string(),
@@ -601,7 +625,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D4)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ ItemStatsModifierEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ ItemStatsModifierEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(m) = ItemStatsModifierEntry::decode(chunk_slice) {
                 let display = format!(
                     "Item Mod #{:<5} | Str: {:>+3} Sta: {:>+3} Agi: {:>+3} Dex: {:>+3} | Armor: {:>+3}",
@@ -609,6 +638,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: m.item_id.to_string(),
                         p1: m.strength.to_string(),
                         p2: m.stamina.to_string(),
@@ -648,7 +678,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07D5)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ UnitStatsEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ UnitStatsEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(u) = UnitStatsEntry::decode(chunk_slice) {
                 let (hp, mana) = u.calculate_effective_hp_and_mana(100, 100);
                 let flags_desc = if u.is_unkillable() {
@@ -672,6 +707,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: u.stats_id.to_string(),
                         val1: u.unit_level.to_string(),
                         val2: u.unit_race.to_string(),
@@ -715,7 +751,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DC)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ Gfx2dItemEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ Gfx2dItemEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(g) = Gfx2dItemEntry::decode(chunk_slice) {
                 let display = format!(
                     "ID: {:<5} [Flag: {}] | Mesh: {}",
@@ -723,6 +764,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: g.item_id.to_string(),
                         val1: g.mesh_name.clone(),
                         p1: g.mesh_name,
@@ -754,7 +796,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07DF)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ WeaponStatsEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ WeaponStatsEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(w) = WeaponStatsEntry::decode(chunk_slice) {
                 let dps = calculate_weapon_dps(w.min_damage, w.max_damage, w.speed);
                 let display = format!(
@@ -763,6 +810,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: w.item_id.to_string(),
                         val1: w.min_damage.to_string(),
                         val2: w.max_damage.to_string(),
@@ -800,7 +848,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E2)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ SpellsBiMapEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ SpellsBiMapEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(b) = SpellsBiMapEntry::decode(chunk_slice) {
                 let display = format!(
                     "Spell ID: {:<5} -> Scroll Item ID: {}",
@@ -808,6 +861,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: b.spell_id.to_string(),
                         val1: b.scroll_item_id.to_string(),
                         p1: b.scroll_item_id.to_string(),
@@ -837,7 +891,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E6)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ RaceEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ RaceEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(r) = RaceEntry::decode(chunk_slice) {
                 let clan = get_clan_name(r.faction_id as u8);
                 let display = format!(
@@ -846,6 +905,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: r.race_id.to_string(),
                         p1: r.aggro_factor.to_string(),
                         p2: r.moral.to_string(),
@@ -881,7 +941,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E8)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ UnitMasterEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ UnitMasterEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(u) = UnitMasterEntry::decode(chunk_slice) {
                 let max_farm_xp = calculate_total_xp(u.xp_gain, u.xp_falloff, 500);
                 let display = format!(
@@ -890,6 +955,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: u.unit_id.to_string(),
                         p1: u.internal_name,
                         p2: u.xp_gain.to_string(),
@@ -925,7 +991,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07ED)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ BuildingMasterEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ BuildingMasterEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(b) = BuildingMasterEntry::decode(chunk_slice) {
                 let display = format!(
                     "Building #{:<5} [Race {}] | HP: {} | Workers: {}ms | Slots: {}",
@@ -933,6 +1004,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: b.building_id.to_string(),
                         p1: b.health.to_string(),
                         p2: b.slots.to_string(),
@@ -969,6 +1041,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
         let mut cur = Cursor::new(&bytes);
+        let mut rec_idx = 0;
         while (cur.position() as usize) < bytes.len() {
             if cur.position() as usize + 5 > bytes.len() {
                 break;
@@ -994,6 +1067,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             );
             if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                 items.push(EditorItem {
+                    record_index: rec_idx,
                     id_str: format!("{}:{}", bld_id, poly_idx),
                     p1: vertex_count.to_string(),
                     p2: flag.to_string(),
@@ -1016,6 +1090,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                     ..Default::default()
                 });
             }
+            rec_idx += 1;
         }
     }
     // 14. Unit Loot Tables (0x07F8 / Cat 2040)
@@ -1023,7 +1098,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07F8)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ UnitLootTableEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ UnitLootTableEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(l) = UnitLootTableEntry::decode(chunk_slice) {
                 let (eff1, eff2, eff3) = calculate_cascade_loot_chances(l.chance1, l.chance2);
                 let display = format!(
@@ -1032,6 +1112,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: format!("{}:{}", l.unit_id, l.slot),
                         val1: l.item1.to_string(),
                         val2: l.item2.to_string(),
@@ -1070,7 +1151,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0811)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ ObjectLootTableEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ ObjectLootTableEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(l) = ObjectLootTableEntry::decode(chunk_slice) {
                 let (eff1, eff2, eff3) = calculate_cascade_loot_chances(l.chance1, l.chance2);
                 let display = format!(
@@ -1079,6 +1165,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: format!("{}:{}", l.object_id, l.slot),
                         val1: l.item1.to_string(),
                         val2: l.item2.to_string(),
@@ -1117,7 +1204,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07E9)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ UnitEquipmentEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ UnitEquipmentEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(e) = UnitEquipmentEntry::decode(chunk_slice) {
                 let slot_name = get_equipment_slot_name(e.equipment_slot);
                 let display = format!(
@@ -1126,6 +1218,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: format!("{}:{}", e.unit_id, e.equipment_slot),
                         p1: e.item_id.to_string(),
                         p2: e.equipment_slot.to_string(),
@@ -1156,7 +1249,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07FA)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ MerchantInventoryEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ MerchantInventoryEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(m) = MerchantInventoryEntry::decode(chunk_slice) {
                 let display = format!(
                     "Merchant #{:<5} sells Item #{:<5} (Stock: {})",
@@ -1164,6 +1262,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: format!("{}:{}", m.merchant_id, m.item_id),
                         p1: m.stock.to_string(),
                         p2: m.merchant_id.to_string(),
@@ -1194,7 +1293,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0800)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ ComplexPropertyEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ ComplexPropertyEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(cp) = ComplexPropertyEntry::decode(chunk_slice) {
                 let display = format!(
                     "Level #{:<2} | XP Req: {:<8} | HP Factor: {}% | MP Factor: {}%",
@@ -1202,6 +1306,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: cp.level.to_string(),
                         p1: cp.experience_required.to_string(),
                         p2: cp.health_factor.to_string(),
@@ -1236,7 +1341,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0802)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ ObjectMasterEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ ObjectMasterEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(o) = ObjectMasterEntry::decode(chunk_slice) {
                 let mut flags_tags = Vec::new();
                 if o.contains_loot() {
@@ -1263,6 +1373,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: o.object_id.to_string(),
                         p1: o.category_name,
                         p2: o.resource_amount.to_string(),
@@ -1298,7 +1409,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080D)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ QuestEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ QuestEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(q) = QuestEntry::decode(chunk_slice) {
                 let main_tag = if q.is_main_quest != 0 {
                     "[Main]"
@@ -1311,6 +1427,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: q.quest_id.to_string(),
                         p1: q.parent_quest_id.to_string(),
                         p2: q.is_main_quest.to_string(),
@@ -1343,7 +1460,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080F)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ WeaponTypeEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ WeaponTypeEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(wt) = WeaponTypeEntry::decode(chunk_slice) {
                 let display = format!(
                     "Weapon Type #{:<3} | NameID: {:<5} | Sharpness: {}%",
@@ -1351,6 +1473,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: wt.type_id.to_string(),
                         p1: wt.sharpness.to_string(),
                         p2: wt.name_id.to_string(),
@@ -1380,7 +1503,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0810)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ WeaponMaterialEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ WeaponMaterialEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(wm) = WeaponMaterialEntry::decode(chunk_slice) {
                 let display = format!(
                     "Weapon Material #{:<3} | NameID: {:<5}",
@@ -1388,6 +1516,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: wm.material_id.to_string(),
                         p1: wm.name_id.to_string(),
                         labels: set_labels_12([
@@ -1416,7 +1545,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0818)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ ItemSetEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ ItemSetEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(s) = ItemSetEntry::decode(chunk_slice) {
                 let display = format!(
                     "Item Set #{:<3} [Type: {}] | DescID: {}",
@@ -1424,6 +1558,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: s.set_id.to_string(),
                         p1: s.description_id.to_string(),
                         p2: s.set_type.to_string(),
@@ -1453,7 +1588,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x07F0)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ TerrainCultivationEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ TerrainCultivationEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(tc) = TerrainCultivationEntry::decode(chunk_slice) {
                 let display = format!(
                     "Terrain #{:<3} | Block: {} | Cultivation: 0x{:02X}",
@@ -1461,6 +1601,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: tc.terrain_id.to_string(),
                         p1: tc.block_value.to_string(),
                         p2: format!("0x{:02X}", tc.cultivation_flags),
@@ -1490,7 +1631,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x0805)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ PortalEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ PortalEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(p) = PortalEntry::decode(chunk_slice) {
                 let def_tag = if p.is_default != 0 { " [Default]" } else { "" };
                 let display = format!(
@@ -1499,6 +1645,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: p.portal_id.to_string(),
                         p1: p.map_id.to_string(),
                         p2: p.pos_x.to_string(),
@@ -1531,7 +1678,12 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
         && let Some(chunk) = manifest.chunks.iter().find(|c| c.id == 0x080A)
         && let Ok(bytes) = fs::read(cff_dir.join(&chunk.file))
     {
-        for chunk_slice in bytes.as_chunks::<{ DescriptionEntry::STRIDE }>().0 {
+        for (rec_idx, chunk_slice) in bytes
+            .as_chunks::<{ DescriptionEntry::STRIDE }>()
+            .0
+            .iter()
+            .enumerate()
+        {
             if let Ok(d) = DescriptionEntry::decode(chunk_slice) {
                 let display = format!(
                     "Description #{:<5} -> TextID: {:<5}",
@@ -1539,6 +1691,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
                 );
                 if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                     items.push(EditorItem {
+                        record_index: rec_idx,
                         id_str: d.description_id.to_string(),
                         p1: d.text_id.to_string(),
                         labels: set_labels_12([
@@ -1579,6 +1732,7 @@ pub fn load_sf1_items(cff_dir: &Path, category: &str, filter: &str) -> Vec<Edito
             let display = format!("Record #{:<5} [Cat 0x{:04X}]", id, chunk.id);
             if filter.is_empty() || display.to_lowercase().contains(&filter_lower) {
                 items.push(EditorItem {
+                    record_index: i,
                     id_str: id.to_string(),
                     p1: id.to_string(),
                     labels: set_labels_12([

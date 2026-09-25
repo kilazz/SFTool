@@ -61,8 +61,12 @@ component InspectorCell {
 }
 
 export component EditorTab inherits HorizontalLayout {
-    in-out property <length> sidebar_width: 460px;
+    // 4-Column Responsive Dimensions
+    in-out property <length> col1_width: 210px;
+    in-out property <length> col2_width: 270px;
+    in-out property <length> col4_width: 360px;
 
+    // Database & Category State
     in-out property <string> editor_cff_dir: "";
     in-out property <string> editor_asset_source: "";
     in-out property <string> editor_filter: "";
@@ -106,13 +110,23 @@ export component EditorTab inherits HorizontalLayout {
         "Slot 3: Spanish [ES]",
         "Slot 4: Italian [IT]"
     ];
+
+    // Reactive category state flags
+    property <bool> is_quest: root.editor_active_category == "Quests (0x080D)";
+    property <bool> is_spells_map: root.editor_active_category == "Spells Mapping (0x07E2)";
+    property <bool> is_loca: root.editor_active_category == "Localized Strings";
+    property <bool> is_loot: root.editor_active_category == "Unit Loot Tables (0x07F8)" || root.editor_active_category == "Chest Loot Tables (0x0811)";
+    property <bool> is_collision: root.editor_active_category == "Building Collision (0x07EE)" || root.editor_active_category == "Object Collision (0x0809)";
+    property <bool> is_weapon_stats: root.editor_active_category == "Weapon Stats (0x07DF)";
+
+    // Record Explorer State
     in-out property <[StandardListViewItem]> editor_entries: [];
     in-out property <int> editor_selected_idx: -1;
     in-out property <string> editor_field_id: "";
     in-out property <string> editor_field_val1: "";
     in-out property <string> editor_field_val2: "";
 
-    // 12-field contextual inspector properties
+    // 12-Field Inspector Properties
     in-out property <string> editor_field_p1: "";
     in-out property <string> editor_field_p2: "";
     in-out property <string> editor_field_p3: "";
@@ -139,28 +153,30 @@ export component EditorTab inherits HorizontalLayout {
     in-out property <string> editor_label_p11: "";
     in-out property <string> editor_label_p12: "";
 
-    // View Mode Switcher: 0 = Table List, 1 = UE5 Node Graph
-    in-out property <int> editor_view_mode: 0;
+    // Pagination State
+    in-out property <int> current_page: 1;
+    in-out property <int> total_pages: 1;
+    in-out property <string> page_info: "Page 1 of 1 (0 records)";
 
-    // Node Graph Properties
+    // Visual Canvas & Node Graph State
     in-out property <[GraphNodeData]> graph_nodes: [];
     in-out property <[GraphEdgeData]> graph_edges: [];
-    in-out property <length> canvas_pan_x: 0px;
-    in-out property <length> canvas_pan_y: 0px;
+    in-out property <length> canvas_pan_x: 40px;
+    in-out property <length> canvas_pan_y: 40px;
     in-out property <int> selected_node_id: -1;
 
-    // Visual Previews & Dual Cards
+    // Visual Assets & Dual Card State
     in-out property <image> preview_icon1;
     in-out property <image> preview_icon2;
     in-out property <string> spell_name_disp: "";
     in-out property <string> scroll_name_disp: "";
     in-out property <string> asset_status_text: "Select a record to preview asset.";
 
-    // History Undo/Redo State
+    // Undo / Redo History Flags
     in-out property <bool> can_undo: false;
     in-out property <bool> can_redo: false;
 
-    // Clone Wizard Input State
+    // Language Clone Wizard State
     in-out property <int> clone_src_slot: 1;
     in-out property <int> clone_dst_slot: 6;
     in-out property <string> clone_lang_tag: "AR";
@@ -170,6 +186,7 @@ export component EditorTab inherits HorizontalLayout {
     callback save_file(string) -> string;
 
     callback load_editor_data(string, string, string, string);
+    callback change_page(string, string, string, string, int);
     callback select_editor_entry(int);
     callback save_editor_entry(string, string, int, [string]);
     callback add_editor_entry(string, string);
@@ -177,19 +194,16 @@ export component EditorTab inherits HorizontalLayout {
     callback delete_editor_entry(string, string, int, string);
 
     callback load_quest_graph(string);
-
-    // History Callbacks (Undo / Redo)
     callback editor_undo();
     callback editor_redo();
 
-    // Unified Multi-Language Callbacks
     callback export_single_language(string, string, string);
     callback import_language_to_slot(string, string, string);
     callback execute_clone_language(string, int, int, string, string);
 
     spacing: 0px;
 
-    // MODAL CLONE LANGUAGE POPUP
+    // MODAL POPUP: Language Clone Wizard
     clone_popup := PopupWindow {
         width: 380px;
         height: 250px;
@@ -283,314 +297,87 @@ export component EditorTab inherits HorizontalLayout {
         }
     }
 
-    // LEFT PANEL: BROWSER, CONTROLS & DUAL-MODE VIEW
+    // =========================================================================
+    // COLUMN 1: DOMAINS & CATEGORIES (~210px)
+    // =========================================================================
     Rectangle {
-        width: root.sidebar_width;
-        background: #2b2d31;
-        border-color: #1f2023;
-        border-width: 1px;
-        border-radius: 4px;
+        width: root.col1_width;
+        background: #1e1f22;
+
+        Rectangle {
+            x: parent.width - 1px;
+            width: 1px;
+            background: #111214;
+        }
 
         VerticalLayout {
-            padding: 12px;
-            spacing: 10px;
+            padding: 8px;
+            spacing: 8px;
 
-            PanelSection {
-                title: "Target Database & Active Scope";
-                title-color: #f0b132;
-                VerticalLayout {
-                    spacing: 6px;
-                    FormRow {
-                        title: "CFF Dir:";
-                        HorizontalLayout {
-                            spacing: 4px;
-                            LineEdit {
-                                text <=> root.editor_cff_dir;
-                                placeholder-text: "Select extracted CFF folder...";
-                                height: 28px;
-                                font-family: "Consolas";
-                                font-size: 11px;
-                            }
+            Text {
+                text: "DATA DOMAINS";
+                font-size: 11px;
+                font-weight: 700;
+                color: #80848e;
+            }
 
-                            CustomButton {
-                                text: "...";
-                                compact: true;
-                                width: 30px;
-                                height: 28px;
-                                clicked => {
-                                    let f = root.browse_folder();
-                                    if (f != "") {
-                                        root.editor_cff_dir = f;
-                                        root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, root.editor_lang_filter);
-                                    }
-                                }
-                            }
-                        }
-                    }
+            HorizontalLayout {
+                spacing: 4px;
+                LineEdit {
+                    text <=> root.editor_cff_dir;
+                    placeholder-text: "CFF folder...";
+                    font-family: "Consolas";
+                    font-size: 10px;
+                    height: 26px;
+                }
 
-                    FormRow {
-                        title: "Category:";
-                        ComboBox {
-                            model: root.available_categories;
-                            current-value <=> root.editor_active_category;
-                            height: 28px;
-                            selected(cat) => {
-                                root.editor_active_category = cat;
-                                root.load_editor_data(root.editor_cff_dir, cat, root.editor_filter, root.editor_lang_filter);
-                                if (cat == "Quests (0x080D)" && root.editor_view_mode == 1) {
-                                    root.load_quest_graph(root.editor_cff_dir);
-                                }
-                            }
-                        }
-                    }
-
-                    FormRow {
-                        title: "Filter:";
-                        LineEdit {
-                            text <=> root.editor_filter;
-                            placeholder-text: "Filter by ID, mesh or phrase...";
-                            height: 28px;
-                            font-family: "Consolas";
-                            font-size: 11px;
-                            edited => {
-                                root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, root.editor_lang_filter);
-                            }
+                CustomButton {
+                    text: "...";
+                    compact: true;
+                    width: 26px;
+                    height: 26px;
+                    clicked => {
+                        let f = root.browse_folder();
+                        if (f != "") {
+                            root.editor_cff_dir = f;
+                            root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, root.editor_lang_filter);
                         }
                     }
                 }
             }
 
-            PanelSection {
-                title: "View Modes & Records (" + root.editor_entries.length + " entries)";
-                VerticalLayout {
-                    spacing: 8px;
-                    vertical-stretch: 1;
+            Rectangle {
+                height: 1px;
+                background: #2b2d31;
+            }
 
-                    // MODE SWITCHER: Table vs Node Graph
+            ListView {
+                for cat in root.available_categories: Rectangle {
+                    height: 26px;
+                    border-radius: 4px;
+                    background: cat == root.editor_active_category ? #3e6a90 : (ta_cat.has-hover ? #2b2d31 : #1e1f22);
+
                     HorizontalLayout {
-                        spacing: 6px;
-                        height: 28px;
+                        padding-left: 8px;
+                        padding-right: 8px;
 
-                        CustomButton {
-                            text: "📋 Table";
-                            primary-color: root.editor_view_mode == 0 ? #3e6a90 : #232529;
-                            clicked => { root.editor_view_mode = 0; }
+                        Text {
+                            text: cat;
+                            font-size: 11px;
+                            font-weight: cat == root.editor_active_category ? 700 : 500;
+                            color: cat == root.editor_active_category ? #ffffff : (ta_cat.has-hover ? #dcddde : #949ba4);
+                            vertical-alignment: center;
+                            overflow: elide;
                         }
+                    }
 
-                        CustomButton {
-                            text: "🕸️ Node Graph (UE5)";
-                            primary-color: root.editor_view_mode == 1 ? #8a5cf6 : #232529;
-                            enabled: root.editor_active_category == "Quests (0x080D)";
-                            clicked => {
-                                root.editor_view_mode = 1;
+                    ta_cat := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.editor_active_category = cat;
+                            root.load_editor_data(root.editor_cff_dir, cat, root.editor_filter, root.editor_lang_filter);
+                            if (cat == "Quests (0x080D)") {
                                 root.load_quest_graph(root.editor_cff_dir);
-                            }
-                        }
-                    }
-
-                    // Action Controls: Add, Duplicate, Delete
-                    HorizontalLayout {
-                        spacing: 6px;
-                        CustomButton {
-                            text: "+ Add Entry";
-                            primary-color: #23a55a;
-                            enabled: root.editor_cff_dir != "";
-                            clicked => {
-                                root.add_editor_entry(root.editor_cff_dir, root.editor_active_category);
-                            }
-                        }
-
-                        CustomButton {
-                            text: "Duplicate";
-                            primary-color: #e59535;
-                            enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "";
-                            clicked => {
-                                root.duplicate_editor_entry(
-                                    root.editor_cff_dir,
-                                    root.editor_active_category,
-                                    root.editor_selected_idx,
-                                    root.editor_field_id);
-                            }
-                        }
-
-                        CustomButton {
-                            text: "Delete";
-                            primary-color: #aa3838;
-                            enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "";
-                            clicked => {
-                                root.delete_editor_entry(
-                                    root.editor_cff_dir,
-                                    root.editor_active_category,
-                                    root.editor_selected_idx,
-                                    root.editor_field_id);
-                            }
-                        }
-                    }
-
-                    // VIEW 0: Table List View
-                    if root.editor_view_mode == 0: Rectangle {
-                        background: #111214;
-                        border-color: #1f2023;
-                        border-width: 1px;
-                        border-radius: 4px;
-                        vertical-stretch: 1;
-                        clip: true;
-
-                        ListView {
-                            for item[index] in root.editor_entries: Rectangle {
-                                height: 26px;
-                                background: ta_ed.has-hover ? #393c41 : (root.editor_selected_idx == index ? #2c3e50 : (Math.mod(index, 2) == 0 ? #191919 : #1c1c1c));
-                                HorizontalLayout {
-                                    padding-left: 8px;
-                                    padding-right: 8px;
-                                    Text {
-                                        text: item.text;
-                                        color: root.editor_selected_idx == index ? #f0b132 : #dcddde;
-                                        font-family: "Consolas";
-                                        font-size: 11px;
-                                        vertical-alignment: center;
-                                        overflow: elide;
-                                    }
-                                }
-
-                                ta_ed := TouchArea {
-                                    mouse-cursor: pointer;
-                                    clicked => {
-                                        root.editor_selected_idx = index;
-                                        root.select_editor_entry(index);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // VIEW 1: Node Graph Canvas (Pan & Zoomable)
-                    if root.editor_view_mode == 1: Rectangle {
-                        background: #111214;
-                        border-color: #8a5cf6;
-                        border-width: 1.5px;
-                        border-radius: 4px;
-                        vertical-stretch: 1;
-                        clip: true;
-
-                        // Canvas Draggable Container
-                        Rectangle {
-                            x: root.canvas_pan_x;
-                            y: root.canvas_pan_y;
-
-                            // 1. Connection Cables (Elbow / Orthogonal Lines)
-                            for edge in root.graph_edges: Rectangle {
-                                // Horizontal 1
-                                Rectangle {
-                                    x: edge.from-x;
-                                    y: edge.from-y - 1px;
-                                    width: (edge.to-x - edge.from-x) / 2;
-                                    height: 2px;
-                                    background: #4e5058;
-                                }
-                                // Vertical
-                                Rectangle {
-                                    x: edge.from-x + (edge.to-x - edge.from-x) / 2;
-                                    y: Math.min(edge.from-y, edge.to-y) - 1px;
-                                    width: 2px;
-                                    height: Math.abs(edge.to-y - edge.from-y) + 2px;
-                                    background: #4e5058;
-                                }
-                                // Horizontal 2
-                                Rectangle {
-                                    x: edge.from-x + (edge.to-x - edge.from-x) / 2;
-                                    y: edge.to-y - 1px;
-                                    width: (edge.to-x - edge.from-x) / 2;
-                                    height: 2px;
-                                    background: #4e5058;
-                                }
-                            }
-
-                            // 2. Interactive Node Cards
-                            for node in root.graph_nodes: Rectangle {
-                                x: node.x;
-                                y: node.y;
-                                width: node.width;
-                                height: node.height;
-                                background: #1e1f22;
-                                border-radius: 6px;
-                                border-width: root.selected_node_id == node.id ? 2px : 1px;
-                                border-color: root.selected_node_id == node.id ? #f0b132 : (node.is_main ? #e59535 : #3e6a90);
-
-                                VerticalLayout {
-                                    // Colored Header Pin Bar
-                                    Rectangle {
-                                        height: 20px;
-                                        background: node.is_main ? #995511 : #224466;
-                                        border-top-left-radius: 5px;
-                                        border-top-right-radius: 5px;
-
-                                        HorizontalLayout {
-                                            padding-left: 8px;
-                                            padding-right: 8px;
-                                            Text {
-                                                text: (node.is_main ? "⭐ [MAIN] " : "🔷 [SIDE] ") + node.title;
-                                                font-size: 10px;
-                                                font-weight: 700;
-                                                color: #ffffff;
-                                                vertical-alignment: center;
-                                                overflow: elide;
-                                            }
-                                        }
-                                    }
-
-                                    // Node Body
-                                    VerticalLayout {
-                                        padding: 6px;
-                                        alignment: center;
-                                        Text {
-                                            text: node.subtitle;
-                                            font-size: 9px;
-                                            font-family: "Consolas";
-                                            color: #cfcfcf;
-                                            overflow: elide;
-                                        }
-                                    }
-                                }
-
-                                // Left Pin (Input)
-                                Rectangle {
-                                    x: -4px;
-                                    y: (parent.height - self.height) / 2;
-                                    width: 8px;
-                                    height: 8px;
-                                    border-radius: 4px;
-                                    background: #3e6a90;
-                                }
-
-                                // Right Pin (Output)
-                                Rectangle {
-                                    x: parent.width - 4px;
-                                    y: (parent.height - self.height) / 2;
-                                    width: 8px;
-                                    height: 8px;
-                                    border-radius: 4px;
-                                    background: #f0b132;
-                                }
-
-                                TouchArea {
-                                    mouse-cursor: pointer;
-                                    clicked => {
-                                        root.selected_node_id = node.id;
-                                        root.editor_selected_idx = node.record_index;
-                                        root.select_editor_entry(node.record_index);
-                                    }
-                                }
-                            }
-                        }
-
-                        // Canvas Pan/Drag Area
-                        TouchArea {
-                            moved => {
-                                if self.pressed {
-                                    root.canvas_pan_x += self.mouse-x - self.pressed-x;
-                                    root.canvas_pan_y += self.mouse-y - self.pressed-y;
-                                }
                             }
                         }
                     }
@@ -599,11 +386,10 @@ export component EditorTab inherits HorizontalLayout {
         }
     }
 
-    // RESIZE SPLITTER
+    // SPLITTER 1
     Rectangle {
-        width: 8px;
-        background: splitter-ta.has-hover ? #474747 : #181818;
-
+        width: 6px;
+        background: s1_ta.has-hover ? #474747 : #181818;
         Rectangle {
             width: 2px;
             height: 24px;
@@ -613,49 +399,621 @@ export component EditorTab inherits HorizontalLayout {
             y: (parent.height - self.height) / 2;
         }
 
-        splitter-ta := TouchArea {
+        s1_ta := TouchArea {
             mouse-cursor: col-resize;
             moved => {
                 if self.pressed {
-                    root.sidebar_width = (root.sidebar_width + self.mouse-x - self.pressed-x).clamp(340px, 680px);
+                    root.col1_width = (root.col1_width + self.mouse-x - self.pressed-x).clamp(180px, 320px);
                 }
             }
         }
     }
 
-    // RIGHT PANEL: CONTEXTUAL INSPECTOR & SHOWCASE
+    // =========================================================================
+    // COLUMN 2: RECORD EXPLORER & PAGINATION (~270px)
+    // =========================================================================
+    Rectangle {
+        width: root.col2_width;
+        background: #2b2d31;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+
+            // Search Bar
+            LineEdit {
+                text <=> root.editor_filter;
+                placeholder-text: "🔍 Filter entries...";
+                font-family: "Consolas";
+                font-size: 11px;
+                height: 28px;
+                edited => {
+                    root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, root.editor_lang_filter);
+                }
+            }
+
+            // RESTORED: Language Selector & Clone Wizard for Localized Strings
+            if root.is_loca: HorizontalLayout {
+                spacing: 4px;
+                height: 26px;
+
+                ComboBox {
+                    model: root.available_languages;
+                    current-value <=> root.editor_lang_filter;
+                    height: 26px;
+                    horizontal-stretch: 1;
+                    selected => {
+                        root.change_page(
+                            root.editor_cff_dir,
+                            root.editor_active_category,
+                            root.editor_filter,
+                            root.editor_lang_filter,
+                            1);
+                    }
+                }
+
+                CustomButton {
+                    text: "Clone...";
+                    compact: true;
+                    width: 58px;
+                    height: 26px;
+                    primary-color: #f0b132;
+                    clicked => { clone_popup.show(); }
+                }
+            }
+
+            // Action Buttons
+            HorizontalLayout {
+                spacing: 4px;
+                height: 26px;
+
+                CustomButton {
+                    text: "+ Add";
+                    primary-color: #23a55a;
+                    enabled: root.editor_cff_dir != "";
+                    clicked => {
+                        root.add_editor_entry(root.editor_cff_dir, root.editor_active_category);
+                    }
+                }
+
+                CustomButton {
+                    text: "Duplicate";
+                    primary-color: #e59535;
+                    enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "";
+                    clicked => {
+                        root.duplicate_editor_entry(
+                            root.editor_cff_dir,
+                            root.editor_active_category,
+                            root.editor_selected_idx,
+                            root.editor_field_id);
+                    }
+                }
+
+                CustomButton {
+                    text: "Delete";
+                    primary-color: #aa3838;
+                    enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "";
+                    clicked => {
+                        root.delete_editor_entry(
+                            root.editor_cff_dir,
+                            root.editor_active_category,
+                            root.editor_selected_idx,
+                            root.editor_field_id);
+                    }
+                }
+            }
+
+            // Pagination Bar
+            HorizontalLayout {
+                spacing: 4px;
+                height: 24px;
+                alignment: center;
+
+                CustomButton {
+                    text: "◀";
+                    compact: true;
+                    width: 28px;
+                    enabled: root.current_page > 1;
+                    clicked => {
+                        root.change_page(
+                            root.editor_cff_dir,
+                            root.editor_active_category,
+                            root.editor_filter,
+                            root.editor_lang_filter,
+                            root.current_page - 1);
+                    }
+                }
+
+                Text {
+                    text: root.page_info;
+                    font-family: "Consolas";
+                    font-size: 10px;
+                    color: #cfcfcf;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+
+                CustomButton {
+                    text: "▶";
+                    compact: true;
+                    width: 28px;
+                    enabled: root.current_page < root.total_pages;
+                    clicked => {
+                        root.change_page(
+                            root.editor_cff_dir,
+                            root.editor_active_category,
+                            root.editor_filter,
+                            root.editor_lang_filter,
+                            root.current_page + 1);
+                    }
+                }
+            }
+
+            // Record List
+            Rectangle {
+                background: #111214;
+                border-color: #1f2023;
+                border-width: 1px;
+                border-radius: 4px;
+                vertical-stretch: 1;
+                clip: true;
+
+                ListView {
+                    for item[index] in root.editor_entries: Rectangle {
+                        height: 26px;
+                        background: ta_ed.has-hover ? #393c41 : (root.editor_selected_idx == index ? #2c3e50 : (Math.mod(index, 2) == 0 ? #191919 : #1c1c1c));
+
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            Text {
+                                text: item.text;
+                                color: root.editor_selected_idx == index ? #f0b132 : #dcddde;
+                                font-family: "Consolas";
+                                font-size: 11px;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+
+                        ta_ed := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.editor_selected_idx = index;
+                                root.select_editor_entry(index);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // SPLITTER 2
+    Rectangle {
+        width: 6px;
+        background: s2_ta.has-hover ? #474747 : #181818;
+        Rectangle {
+            width: 2px;
+            height: 24px;
+            background: #808080;
+            border-radius: 1px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+        }
+
+        s2_ta := TouchArea {
+            mouse-cursor: col-resize;
+            moved => {
+                if self.pressed {
+                    root.col2_width = (root.col2_width + self.mouse-x - self.pressed-x).clamp(220px, 400px);
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // COLUMN 3: INTERACTIVE VISUAL CANVAS / FULL TEXT EDITOR (Flex Width)
+    // =========================================================================
     Rectangle {
         horizontal-stretch: 1;
-        background: #2b2d31;
-        border-color: #1f2023;
-        border-width: 1px;
-        border-radius: 4px;
+        background: #141517;
         clip: true;
 
-        ScrollView {
-            VerticalLayout {
-                padding: 16px;
-                spacing: 12px;
-                alignment: start;
+        VerticalLayout {
+            // Toolbar
+            Rectangle {
+                height: 34px;
+                background: #1e1f22;
 
-                // Header with Undo / Redo / Discard Controls
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: #2b2d31;
+                }
+
                 HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
                     alignment: space-between;
 
-                    SectionTitle {
-                        text: "Entity Inspector & Live Showcase";
-                        text-color: #f0b132;
-                        width: 260px;
+                    Text {
+                        text: root.is_quest ? "🕸️ Quest Dependency Graph (Interactive Flow)" : (root.is_loca ? "📖 Fullscreen Localization Editor & Formatting Workspace" : "📐 Visual Blueprint & Canvas Preview");
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: #f0b132;
+                        vertical-alignment: center;
                     }
 
-                    HorizontalLayout {
+                    if root.is_quest: HorizontalLayout {
                         spacing: 6px;
                         alignment: end;
 
                         CustomButton {
+                            text: "⟲ Center Graph";
+                            compact: true;
+                            width: 110px;
+                            height: 24px;
+                            primary-color: #3e6a90;
+                            clicked => {
+                                root.canvas_pan_x = 40px;
+                                root.canvas_pan_y = 40px;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Canvas Workspace
+            Rectangle {
+                vertical-stretch: 1;
+                clip: true;
+
+                // 1. QUESTS MODE: Infinite Node Canvas with Real Titles
+                if root.is_quest: Rectangle {
+                    Rectangle {
+                        x: root.canvas_pan_x;
+                        y: root.canvas_pan_y;
+
+                        for edge in root.graph_edges: Rectangle {
+                            Rectangle {
+                                x: edge.from-x;
+                                y: edge.from-y - 1px;
+                                width: (edge.to-x - edge.from-x) / 2;
+                                height: 2px;
+                                background: #4e5058;
+                            }
+
+                            Rectangle {
+                                x: edge.from-x + (edge.to-x - edge.from-x) / 2;
+                                y: Math.min(edge.from-y, edge.to-y) - 1px;
+                                width: 2px;
+                                height: Math.abs(edge.to-y - edge.from-y) + 2px;
+                                background: #4e5058;
+                            }
+
+                            Rectangle {
+                                x: edge.from-x + (edge.to-x - edge.from-x) / 2;
+                                y: edge.to-y - 1px;
+                                width: (edge.to-x - edge.from-x) / 2;
+                                height: 2px;
+                                background: #4e5058;
+                            }
+                        }
+
+                        for node in root.graph_nodes: Rectangle {
+                            x: node.x;
+                            y: node.y;
+                            width: node.width;
+                            height: node.height;
+                            background: #1e1f22;
+                            border-radius: 6px;
+                            border-width: root.selected_node_id == node.id ? 2px : 1px;
+                            border-color: root.selected_node_id == node.id ? #f0b132 : (node.is_main ? #e59535 : #3e6a90);
+
+                            VerticalLayout {
+                                Rectangle {
+                                    height: 22px;
+                                    background: node.is_main ? #995511 : #224466;
+                                    border-top-left-radius: 5px;
+                                    border-top-right-radius: 5px;
+
+                                    HorizontalLayout {
+                                        padding-left: 8px;
+                                        padding-right: 8px;
+                                        Text {
+                                            text: node.title;
+                                            font-size: 10px;
+                                            font-weight: 700;
+                                            color: #ffffff;
+                                            vertical-alignment: center;
+                                            overflow: elide;
+                                        }
+                                    }
+                                }
+
+                                VerticalLayout {
+                                    padding: 6px;
+                                    alignment: center;
+                                    Text {
+                                        text: node.subtitle;
+                                        font-size: 9px;
+                                        font-family: "Consolas";
+                                        color: #cfcfcf;
+                                        overflow: elide;
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                x: -4px;
+                                y: (parent.height - self.height) / 2;
+                                width: 8px;
+                                height: 8px;
+                                border-radius: 4px;
+                                background: #3e6a90;
+                            }
+
+                            Rectangle {
+                                x: parent.width - 4px;
+                                y: (parent.height - self.height) / 2;
+                                width: 8px;
+                                height: 8px;
+                                border-radius: 4px;
+                                background: #f0b132;
+                            }
+
+                            TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.selected_node_id = node.id;
+                                    root.editor_selected_idx = node.record_index;
+                                    root.select_editor_entry(node.record_index);
+                                }
+                            }
+                        }
+                    }
+
+                    TouchArea {
+                        moved => {
+                            if self.pressed {
+                                root.canvas_pan_x += self.mouse-x - self.pressed-x;
+                                root.canvas_pan_y += self.mouse-y - self.pressed-y;
+                            }
+                        }
+                    }
+                }
+
+                // 2. FULLSCREEN TEXT EDITOR FOR LOCALIZED STRINGS (Instead of empty canvas!)
+                if root.is_loca: VerticalLayout {
+                    padding: 16px;
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: "Phrase Content (" + root.editor_field_val2 + "):";
+                            font-size: 12px;
+                            font-weight: 700;
+                            color: #f0b132;
+                        }
+                    }
+
+                    TextEdit {
+                        text <=> root.editor_field_val1;
+                        font-family: "Consolas";
+                        font-size: 13px;
+                        wrap: TextWrap.word-wrap;
+                        vertical-stretch: 1;
+                    }
+
+                    Text {
+                        text: "Tip: Edit in this wide canvas and click 'Save Record Changes' on the right panel to update the .dat chunk.";
+                        font-size: 11px;
+                        color: #80848e;
+                    }
+                }
+
+                // 3. GENERAL PREVIEWS (Collision polygons, Spells Dual-Cards, Textures)
+                if !root.is_quest && !root.is_loca: VerticalLayout {
+                    alignment: center;
+                    spacing: 12px;
+                    padding: 16px;
+
+                    if root.is_spells_map: HorizontalLayout {
+                        spacing: 20px;
+                        alignment: center;
+
+                        Rectangle {
+                            width: 170px;
+                            height: 160px;
+                            background: #18191b;
+                            border-color: #353535;
+                            border-width: 1px;
+                            border-radius: 6px;
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 6px;
+                                alignment: center;
+                                Rectangle {
+                                    width: 72px;
+                                    height: 72px;
+                                    background: #111214;
+                                    border-color: #f0b132;
+                                    border-width: 1px;
+                                    border-radius: 4px;
+                                    clip: true;
+                                    Image {
+                                        source: root.preview_icon1;
+                                        width: 100%;
+                                        height: 100%;
+                                        image-fit: contain;
+                                    }
+                                }
+
+                                Text {
+                                    text: root.spell_name_disp != "" ? root.spell_name_disp : "Combat Spell";
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                    color: #f0b132;
+                                    horizontal-alignment: center;
+                                }
+
+                                Text {
+                                    text: "Spell ID: " + root.editor_field_id;
+                                    font-size: 10px;
+                                    color: #808080;
+                                    horizontal-alignment: center;
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: "➔";
+                            font-size: 26px;
+                            font-weight: 700;
+                            color: #f0b132;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {
+                            width: 170px;
+                            height: 160px;
+                            background: #18191b;
+                            border-color: #353535;
+                            border-width: 1px;
+                            border-radius: 6px;
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 6px;
+                                alignment: center;
+                                Rectangle {
+                                    width: 72px;
+                                    height: 72px;
+                                    background: #111214;
+                                    border-color: #3e6a90;
+                                    border-width: 1px;
+                                    border-radius: 4px;
+                                    clip: true;
+                                    Image {
+                                        source: root.preview_icon2;
+                                        width: 100%;
+                                        height: 100%;
+                                        image-fit: contain;
+                                    }
+                                }
+
+                                Text {
+                                    text: root.scroll_name_disp != "" ? root.scroll_name_disp : "Scroll Item";
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                    color: #3e6a90;
+                                    horizontal-alignment: center;
+                                }
+
+                                Text {
+                                    text: "Scroll ID: " + root.editor_field_val1;
+                                    font-size: 10px;
+                                    color: #808080;
+                                    horizontal-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    if !root.is_spells_map: VerticalLayout {
+                        alignment: center;
+                        spacing: 8px;
+
+                        Rectangle {
+                            width: 200px;
+                            height: 200px;
+                            background: #111214;
+                            border-color: #f0b132;
+                            border-width: 1.5px;
+                            border-radius: 6px;
+                            clip: true;
+                            x: (parent.width - self.width) / 2;
+
+                            Image {
+                                source: root.preview_icon1;
+                                width: 100%;
+                                height: 100%;
+                                image-fit: contain;
+                            }
+                        }
+
+                        Text {
+                            text: root.asset_status_text;
+                            font-size: 11px;
+                            font-family: "Consolas";
+                            color: #dcddde;
+                            horizontal-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // SPLITTER 3
+    Rectangle {
+        width: 6px;
+        background: s3_ta.has-hover ? #474747 : #181818;
+        Rectangle {
+            width: 2px;
+            height: 24px;
+            background: #808080;
+            border-radius: 1px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+        }
+
+        s3_ta := TouchArea {
+            mouse-cursor: col-resize;
+            moved => {
+                if self.pressed {
+                    root.col4_width = (root.col4_width - self.mouse-x + self.pressed-x).clamp(320px, 500px);
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    // COLUMN 4: DETAILS INSPECTOR (Fixed Grid & Compact Alignment)
+    // =========================================================================
+    Rectangle {
+        width: root.col4_width;
+        background: #2b2d31;
+
+        ScrollView {
+            VerticalLayout {
+                alignment: start; // PREVENTS VERTICAL STRETCHING
+                padding: 12px;
+                spacing: 8px;
+
+                // Inspector Header
+                HorizontalLayout {
+                    alignment: space-between;
+
+                    Text {
+                        text: "DETAILS INSPECTOR";
+                        font-size: 11px;
+                        font-weight: 700;
+                        color: #f0b132;
+                        vertical-alignment: center;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 4px;
+
+                        CustomButton {
                             text: "↶ Undo";
                             compact: true;
-                            width: 65px;
+                            width: 55px;
                             height: 24px;
                             primary-color: #4e5058;
                             enabled: root.can_undo;
@@ -665,7 +1023,7 @@ export component EditorTab inherits HorizontalLayout {
                         CustomButton {
                             text: "↷ Redo";
                             compact: true;
-                            width: 65px;
+                            width: 55px;
                             height: 24px;
                             primary-color: #4e5058;
                             enabled: root.can_redo;
@@ -673,171 +1031,13 @@ export component EditorTab inherits HorizontalLayout {
                         }
 
                         CustomButton {
-                            text: "↺ Discard";
+                            text: "↺";
                             compact: true;
-                            width: 70px;
+                            width: 26px;
                             height: 24px;
                             primary-color: #353535;
                             enabled: root.editor_selected_idx >= 0;
-                            clicked => {
-                                root.select_editor_entry(root.editor_selected_idx);
-                            }
-                        }
-                    }
-                }
-
-                // A. DUAL CARDS FOR SPELLS MAPPING (0x07E2)
-                if root.editor_active_category == "Spells Mapping (0x07E2)": HorizontalLayout {
-                    spacing: 12px;
-                    alignment: center;
-                    height: 125px;
-
-                    Rectangle {
-                        width: 180px;
-                        background: #18191b;
-                        border-color: #353535;
-                        border-width: 1px;
-                        border-radius: 6px;
-
-                        VerticalLayout {
-                            padding: 8px;
-                            spacing: 4px;
-                            alignment: center;
-
-                            Rectangle {
-                                width: 64px;
-                                height: 64px;
-                                background: #111214;
-                                border-color: #e59535;
-                                border-width: 1px;
-                                border-radius: 4px;
-                                clip: true;
-
-                                Image {
-                                    source: root.preview_icon1;
-                                    width: 100%;
-                                    height: 100%;
-                                    image-fit: contain;
-                                }
-                            }
-
-                            Text {
-                                text: root.spell_name_disp != "" ? root.spell_name_disp : "Combat Spell";
-                                font-size: 11px;
-                                font-weight: 700;
-                                color: #f0b132;
-                                horizontal-alignment: center;
-                                overflow: elide;
-                            }
-
-                            Text {
-                                text: "Spell ID: " + root.editor_field_id;
-                                font-size: 10px;
-                                color: #808080;
-                                horizontal-alignment: center;
-                            }
-                        }
-                    }
-
-                    VerticalLayout {
-                        alignment: center;
-                        Text {
-                            text: "➔";
-                            font-size: 22px;
-                            font-weight: 700;
-                            color: #f0b132;
-                            vertical-alignment: center;
-                        }
-                    }
-
-                    Rectangle {
-                        width: 180px;
-                        background: #18191b;
-                        border-color: #353535;
-                        border-width: 1px;
-                        border-radius: 6px;
-
-                        VerticalLayout {
-                            padding: 8px;
-                            spacing: 4px;
-                            alignment: center;
-
-                            Rectangle {
-                                width: 64px;
-                                height: 64px;
-                                background: #111214;
-                                border-color: #3e6a90;
-                                border-width: 1px;
-                                border-radius: 4px;
-                                clip: true;
-
-                                Image {
-                                    source: root.preview_icon2;
-                                    width: 100%;
-                                    height: 100%;
-                                    image-fit: contain;
-                                }
-                            }
-
-                            Text {
-                                text: root.scroll_name_disp != "" ? root.scroll_name_disp : "Inventory Scroll";
-                                font-size: 11px;
-                                font-weight: 700;
-                                color: #3e6a90;
-                                horizontal-alignment: center;
-                                overflow: elide;
-                            }
-
-                            Text {
-                                text: "Scroll ID: " + root.editor_field_val1;
-                                font-size: 10px;
-                                color: #808080;
-                                horizontal-alignment: center;
-                            }
-                        }
-                    }
-                }
-
-                // B. LIVE PREVIEW FOR ICONS, ASSETS & VECTOR POLYGONS
-                if root.editor_active_category != "Spells Mapping (0x07E2)" && root.editor_active_category != "Localized Strings": HorizontalLayout {
-                    spacing: 12px;
-                    alignment: start;
-                    height: 84px;
-
-                    Rectangle {
-                        width: 84px;
-                        height: 84px;
-                        background: #111214;
-                        border-color: #f0b132;
-                        border-width: 1.5px;
-                        border-radius: 6px;
-                        clip: true;
-
-                        Image {
-                            source: root.preview_icon1;
-                            width: 100%;
-                            height: 100%;
-                            image-fit: contain;
-                        }
-                    }
-
-                    VerticalLayout {
-                        spacing: 4px;
-                        alignment: center;
-
-                        Text {
-                            text: root.editor_active_category;
-                            font-size: 12px;
-                            font-weight: 700;
-                            color: #f0b132;
-                        }
-
-                        Text {
-                            text: root.asset_status_text;
-                            font-size: 11px;
-                            font-family: "Consolas";
-                            color: #dcddde;
-                            wrap: word-wrap;
+                            clicked => { root.select_editor_entry(root.editor_selected_idx); }
                         }
                     }
                 }
@@ -847,10 +1047,10 @@ export component EditorTab inherits HorizontalLayout {
                     background: #353535;
                 }
 
-                // PRIMARY RECORD KEY / ID
+                // Record Key / ID
                 FormRow {
                     title: "Record Key / ID:";
-                    label-width: 130px;
+                    label-width: 110px;
                     LineEdit {
                         text <=> root.editor_field_id;
                         read-only: true;
@@ -859,116 +1059,150 @@ export component EditorTab inherits HorizontalLayout {
                     }
                 }
 
-                // VIEW A: MULTILINE LOCALIZED STRING EDITOR
-                if root.editor_active_category == "Localized Strings": VerticalLayout {
+                // VIEW A: Compact Metadata for Localized Strings
+                if root.is_loca: VerticalLayout {
                     spacing: 6px;
                     Text {
-                        text: "Localized Phrase Content:";
-                        font-size: 11px;
-                        color: #dcddde;
-                        font-weight: 600;
-                    }
-
-                    TextEdit {
-                        text <=> root.editor_field_val1;
-                        font-family: "Consolas";
-                        font-size: 12px;
-                        height: 180px;
-                        wrap: TextWrap.word-wrap;
-                    }
-
-                    Text {
-                        text: root.editor_field_val2;
+                        text: "Metadata: " + root.editor_field_val2;
                         font-family: "Consolas";
                         font-size: 11px;
-                        color: #808080;
+                        color: #cfcfcf;
                     }
                 }
 
-                // VIEW B: DYNAMIC TWO-COLUMN STRUCTURED INSPECTOR (P1..P12)
-                if root.editor_active_category != "Localized Strings": HorizontalLayout {
-                    spacing: 12px;
+                // VIEW B: Paired Rows for Clean Alignment (P1..P12)
+                if !root.is_loca: VerticalLayout {
+                    spacing: 8px;
 
-                    // Column 1 (Odds: P1, P3, P5, P7, P9, P11)
-                    VerticalLayout {
+                    // Row 1: P1 & P2
+                    if root.editor_label_p1 != "" || root.editor_label_p2 != "": HorizontalLayout {
                         spacing: 8px;
-                        horizontal-stretch: 1;
-
                         if root.editor_label_p1 != "": InspectorCell {
                             label: root.editor_label_p1;
                             value <=> root.editor_field_p1;
                         }
-
-                        if root.editor_label_p3 != "": InspectorCell {
-                            label: root.editor_label_p3;
-                            value <=> root.editor_field_p3;
+                        if root.editor_label_p1 == "": Rectangle {
+                            horizontal-stretch: 1;
                         }
-
-                        if root.editor_label_p5 != "": InspectorCell {
-                            label: root.editor_label_p5;
-                            value <=> root.editor_field_p5;
-                        }
-
-                        if root.editor_label_p7 != "": InspectorCell {
-                            label: root.editor_label_p7;
-                            value <=> root.editor_field_p7;
-                            read-only: root.editor_active_category == "Unit Loot Tables (0x07F8)" || root.editor_active_category == "Chest Loot Tables (0x0811)";
-                        }
-
-                        if root.editor_label_p9 != "": InspectorCell {
-                            label: root.editor_label_p9;
-                            value <=> root.editor_field_p9;
-                            read-only: root.editor_active_category == "Unit Loot Tables (0x07F8)" || root.editor_active_category == "Chest Loot Tables (0x0811)";
-                        }
-
-                        if root.editor_label_p11 != "": InspectorCell {
-                            label: root.editor_label_p11;
-                            value <=> root.editor_field_p11;
-                        }
-                    }
-
-                    // Column 2 (Evens: P2, P4, P6, P8, P10, P12)
-                    VerticalLayout {
-                        spacing: 8px;
-                        horizontal-stretch: 1;
 
                         if root.editor_label_p2 != "": InspectorCell {
                             label: root.editor_label_p2;
                             value <=> root.editor_field_p2;
                         }
+                        if root.editor_label_p2 == "": Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    // Row 2: P3 & P4
+                    if root.editor_label_p3 != "" || root.editor_label_p4 != "": HorizontalLayout {
+                        spacing: 8px;
+                        if root.editor_label_p3 != "": InspectorCell {
+                            label: root.editor_label_p3;
+                            value <=> root.editor_field_p3;
+                        }
+                        if root.editor_label_p3 == "": Rectangle {
+                            horizontal-stretch: 1;
+                        }
 
                         if root.editor_label_p4 != "": InspectorCell {
                             label: root.editor_label_p4;
                             value <=> root.editor_field_p4;
-                            read-only: root.editor_active_category == "Weapon Stats (0x07DF)";
+                            read-only: root.is_weapon_stats;
+                        }
+                        if root.editor_label_p4 == "": Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    // Row 3: P5 & P6
+                    if root.editor_label_p5 != "" || root.editor_label_p6 != "": HorizontalLayout {
+                        spacing: 8px;
+                        if root.editor_label_p5 != "": InspectorCell {
+                            label: root.editor_label_p5;
+                            value <=> root.editor_field_p5;
+                        }
+                        if root.editor_label_p5 == "": Rectangle {
+                            horizontal-stretch: 1;
                         }
 
                         if root.editor_label_p6 != "": InspectorCell {
                             label: root.editor_label_p6;
                             value <=> root.editor_field_p6;
                         }
+                        if root.editor_label_p6 == "": Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    // Row 4: P7 & P8
+                    if root.editor_label_p7 != "" || root.editor_label_p8 != "": HorizontalLayout {
+                        spacing: 8px;
+                        if root.editor_label_p7 != "": InspectorCell {
+                            label: root.editor_label_p7;
+                            value <=> root.editor_field_p7;
+                            read-only: root.is_loot;
+                        }
+                        if root.editor_label_p7 == "": Rectangle {
+                            horizontal-stretch: 1;
+                        }
 
                         if root.editor_label_p8 != "": InspectorCell {
                             label: root.editor_label_p8;
                             value <=> root.editor_field_p8;
-                            read-only: root.editor_active_category == "Unit Loot Tables (0x07F8)" || root.editor_active_category == "Chest Loot Tables (0x0811)";
+                            read-only: root.is_loot;
+                        }
+                        if root.editor_label_p8 == "": Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    // Row 5: P9 & P10
+                    if root.editor_label_p9 != "" || root.editor_label_p10 != "": HorizontalLayout {
+                        spacing: 8px;
+                        if root.editor_label_p9 != "": InspectorCell {
+                            label: root.editor_label_p9;
+                            value <=> root.editor_field_p9;
+                            read-only: root.is_loot;
+                        }
+                        if root.editor_label_p9 == "": Rectangle {
+                            horizontal-stretch: 1;
                         }
 
                         if root.editor_label_p10 != "": InspectorCell {
                             label: root.editor_label_p10;
                             value <=> root.editor_field_p10;
                         }
+                        if root.editor_label_p10 == "": Rectangle {
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    // Row 6: P11 & P12
+                    if root.editor_label_p11 != "" || root.editor_label_p12 != "": HorizontalLayout {
+                        spacing: 8px;
+                        if root.editor_label_p11 != "": InspectorCell {
+                            label: root.editor_label_p11;
+                            value <=> root.editor_field_p11;
+                        }
+                        if root.editor_label_p11 == "": Rectangle {
+                            horizontal-stretch: 1;
+                        }
 
                         if root.editor_label_p12 != "": InspectorCell {
                             label: root.editor_label_p12;
                             value <=> root.editor_field_p12;
                         }
+                        if root.editor_label_p12 == "": Rectangle {
+                            horizontal-stretch: 1;
+                        }
                     }
                 }
 
+                // Save Action Button
                 CustomButton {
-                    text: "Save Record Changes to Chunk (.dat)";
-                    enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "" && root.editor_active_category != "Object Collision (0x0809)" && root.editor_active_category != "Building Collision (0x07EE)";
+                    text: "Save Record Changes (.dat)";
+                    enabled: root.editor_selected_idx >= 0 && root.editor_cff_dir != "" && !root.is_collision;
                     primary-color: #23a55a;
                     height: 32px;
                     clicked => {
@@ -993,22 +1227,6 @@ export component EditorTab inherits HorizontalLayout {
                             root.editor_field_val1
                         ]);
                     }
-                }
-
-                Rectangle {
-                    height: 1px;
-                    background: #353535;
-                }
-
-                Text {
-                    text: "Structured Studio Inspector Guide:\n" +
-                        "• Node Graph Navigation: Switch between 📋 Table and 🕸️ Node Graph for visual branching.\n" +
-                        "• Pan & Drag Canvas: Hold and drag anywhere on the canvas to explore large quest trees.\n" +
-                        "• Click to Inspect: Selecting any node instantly loads its parameters into this inspector.\n" +
-                        "• ↶ Undo / ↷ Redo: Safely revert or reapply changes made during the current editing session.";
-                    color: #808080;
-                    font-size: 11px;
-                    wrap: word-wrap;
                 }
             }
         }
