@@ -38,6 +38,7 @@ export component AppWindow inherits Window {
     in-out property <string> selected_pak: "";
     in-out property <string> selected_folder: "";
     in-out property <string> persisted_pak_fmt: "SpellForce 1 (.pak)";
+    in-out property <string> persisted_pak_algo: "Zlib";
     in-out property <int> persisted_pak_comp: 6;
     in-out property <[StandardListViewItem]> archive_files: [];
 
@@ -188,9 +189,9 @@ export component AppWindow inherits Window {
 
     // Callbacks: PAK & VFS Tree
     callback unpack_pak(string, string);
-    callback pack_pak(string, string, string, int);
+    callback pack_pak(string, string, string, string, int);
     callback batch_unpack_pak(string);
-    callback batch_pack_pak(string, string, int);
+    callback batch_pack_pak(string, string, string, int);
     callback archive_item_clicked(int);
     callback load_archive_tree(string);
 
@@ -298,6 +299,7 @@ export component AppWindow inherits Window {
                 selected_pak <=> root.selected_pak;
                 selected_folder <=> root.selected_folder;
                 persisted_pak_fmt <=> root.persisted_pak_fmt;
+                persisted_pak_algo <=> root.persisted_pak_algo;
                 persisted_pak_comp <=> root.persisted_pak_comp;
                 archive_files: root.archive_files;
 
@@ -305,9 +307,9 @@ export component AppWindow inherits Window {
                 browse_folder => { root.browse_folder() }
                 save_file(ext) => { root.save_file(ext) }
                 unpack_pak(p, out) => { root.unpack_pak(p, out) }
-                pack_pak(src, out, fmt, comp) => { root.pack_pak(src, out, fmt, comp) }
+                pack_pak(src, out, fmt, algo, comp) => { root.pack_pak(src, out, fmt, algo, comp) }
                 batch_unpack_pak(f) => { root.batch_unpack_pak(f) }
-                batch_pack_pak(f, fmt, comp) => { root.batch_pack_pak(f, fmt, comp) }
+                batch_pack_pak(f, fmt, algo, comp) => { root.batch_pack_pak(f, fmt, algo, comp) }
                 archive_item_clicked(idx) => { root.archive_item_clicked(idx) }
                 load_archive_tree(p) => { root.load_archive_tree(p) }
             }

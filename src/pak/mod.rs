@@ -51,13 +51,14 @@ pub fn pack_pak(
     src_dir: &Path,
     out_file: &Path,
     fmt: &str,
+    algo: &str,
     comp_level: u32,
     logger: &UiLogger,
 ) -> io::Result<()> {
     if fmt.contains('1') {
         sf1::pack_sf1(src_dir, out_file, logger)
     } else {
-        sf2::pack_sf2(src_dir, out_file, comp_level, logger)
+        sf2::pack_sf2(src_dir, out_file, algo, comp_level, logger)
     }
 }
 
@@ -184,6 +185,7 @@ pub fn batch_unpack_paks(root_dir: &Path, logger: &UiLogger) -> io::Result<()> {
 pub fn batch_pack_folders(
     root_dir: &Path,
     fmt: &str,
+    algo: &str,
     comp_level: u32,
     logger: &UiLogger,
 ) -> io::Result<()> {
@@ -207,7 +209,7 @@ pub fn batch_pack_folders(
             let out_pak_path = root_dir.join(format!("{}.pak", base_name));
             logger.log(&format!("[*] Compiling directory {:?}", folder_name));
 
-            if let Err(e) = pack_pak(&path, &out_pak_path, fmt, comp_level, logger) {
+            if let Err(e) = pack_pak(&path, &out_pak_path, fmt, algo, comp_level, logger) {
                 logger.log(&format!("[!] Error: {}", e));
             } else {
                 compiled += 1;

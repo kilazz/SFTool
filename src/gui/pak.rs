@@ -207,14 +207,15 @@ pub fn register_pak_callbacks(ui: &AppWindow, logger: UiLogger) {
 
     // Pack PAK
     let log_pack = logger.clone();
-    ui.on_pack_pak(move |src, out, fmt, comp| {
+    ui.on_pack_pak(move |src, out, fmt, algo, comp| {
         let log = log_pack.clone();
         let src_p = PathBuf::from(src.as_str());
         let out_p = PathBuf::from(out.as_str());
         let fmt_s = fmt.to_string();
+        let algo_s = algo.to_string();
         thread::spawn(move || {
             log.log(&format!("[*] Packing directory into PAK: {:?}", src_p));
-            if let Err(e) = pak::pack_pak(&src_p, &out_p, &fmt_s, comp as u32, &log) {
+            if let Err(e) = pak::pack_pak(&src_p, &out_p, &fmt_s, &algo_s, comp as u32, &log) {
                 log.log(&format!("[!] Error packing PAK: {}", e));
             } else {
                 log.log("[+] PAK pack finished successfully.");
@@ -234,12 +235,13 @@ pub fn register_pak_callbacks(ui: &AppWindow, logger: UiLogger) {
 
     // Batch Pack
     let log_b_pack = logger;
-    ui.on_batch_pack_pak(move |root, fmt, comp| {
+    ui.on_batch_pack_pak(move |root, fmt, algo, comp| {
         let log = log_b_pack.clone();
         let p = PathBuf::from(root.as_str());
         let fmt_s = fmt.to_string();
+        let algo_s = algo.to_string();
         thread::spawn(move || {
-            let _ = pak::batch_pack_folders(&p, &fmt_s, comp as u32, &log);
+            let _ = pak::batch_pack_folders(&p, &fmt_s, &algo_s, comp as u32, &log);
         });
     });
 }

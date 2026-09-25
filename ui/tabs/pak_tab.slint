@@ -17,6 +17,7 @@ export component PakTab inherits HorizontalLayout {
     in-out property <string> selected_pak: "";
     in-out property <string> selected_folder: "";
     in-out property <string> persisted_pak_fmt: "SpellForce 1 (.pak)";
+    in-out property <string> persisted_pak_algo: "Zlib";
     in-out property <int> persisted_pak_comp: 6;
     in-out property <[StandardListViewItem]> archive_files: [];
 
@@ -25,9 +26,9 @@ export component PakTab inherits HorizontalLayout {
     callback save_file(string) -> string;
 
     callback unpack_pak(string, string);
-    callback pack_pak(string, string, string, int);
+    callback pack_pak(string, string, string, string, int);
     callback batch_unpack_pak(string);
-    callback batch_pack_pak(string, string, int);
+    callback batch_pack_pak(string, string, string, int);
     callback archive_item_clicked(int);
     callback load_archive_tree(string);
 
@@ -154,7 +155,16 @@ export component PakTab inherits HorizontalLayout {
                         }
 
                         if root.persisted_pak_fmt != "SpellForce 1 (.pak)": FormRow {
-                            title: "Zlib Level:";
+                            title: "Algorithm:";
+                            ComboBox {
+                                model: ["Zlib", "Zopfli"];
+                                current-value <=> root.persisted_pak_algo;
+                                height: 28px;
+                            }
+                        }
+
+                        if root.persisted_pak_fmt != "SpellForce 1 (.pak)": FormRow {
+                            title: "Comp Level:";
                             SpinBox {
                                 value <=> root.persisted_pak_comp;
                                 minimum: 0;
@@ -172,7 +182,7 @@ export component PakTab inherits HorizontalLayout {
                                 primary-color: #23a55a;
                                 clicked => {
                                     let target = root.save_file("pak");
-                                    if (target != "") { root.pack_pak(root.selected_folder, target, root.persisted_pak_fmt, root.persisted_pak_comp); }
+                                    if (target != "") { root.pack_pak(root.selected_folder, target, root.persisted_pak_fmt, root.persisted_pak_algo, root.persisted_pak_comp); }
                                 }
                             }
 
@@ -181,7 +191,7 @@ export component PakTab inherits HorizontalLayout {
                                 primary-color: #4e5058;
                                 clicked => {
                                     let f = root.browse_folder();
-                                    if (f != "") { root.batch_pack_pak(f, root.persisted_pak_fmt, root.persisted_pak_comp); }
+                                    if (f != "") { root.batch_pack_pak(f, root.persisted_pak_fmt, root.persisted_pak_algo, root.persisted_pak_comp); }
                                 }
                             }
                         }

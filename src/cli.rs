@@ -24,13 +24,13 @@ PAK & VFS Commands:
   unpack_pak <pak_file> <out_dir>
       Extract all files from a SpellForce 1 or SpellForce 2 PAK archive.
 
-  pack_pak <src_dir> <out_pak> [fmt: sf1|sf2] [comp: 0-9]
-      Pack directory into PAK (SF1 uses verified in-engine VFS ordering).
+  pack_pak <src_dir> <out_pak> [fmt: sf1|sf2] [algo: zlib|zopfli] [comp: 0-9]
+      Pack directory into PAK. (SF1 uses internal format, SF2 supports Zlib/Zopfli).
 
   batch_unpack_pak <root_folder>
       Recursively find and extract all .pak archives in root_folder.
 
-  batch_pack_pak <root_folder> [fmt: sf1|sf2] [comp: 0-9]
+  batch_pack_pak <root_folder> [fmt: sf1|sf2] [algo: zlib|zopfli] [comp: 0-9]
       Batch pack all '*_extracted' directories back into .pak files.
 
   create_addon <mod_files_dir> <game_data_dir> <mod_name>
@@ -798,107 +798,6 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             );
         }
 
-        "unpack_cff" => {
-            if args.len() < 4 {
-                eprintln!("Usage: SFTool unpack_cff <input_cff> <out_dir>");
-                return Ok(());
-            }
-            let (logger, handle) = make_cli_logger();
-            cff::unpack_all(Path::new(&args[2]), Path::new(&args[3]), &logger)?;
-            drop(logger);
-            let _ = handle.join();
-        }
-
-        "pack_cff" => {
-            if args.len() < 4 {
-                eprintln!("Usage: SFTool pack_cff <in_dir> <out_cff> [compression_level]");
-                return Ok(());
-            }
-            let comp = args.get(4).and_then(|s| s.parse::<u32>().ok()).unwrap_or(6);
-            let (logger, handle) = make_cli_logger();
-            cff::pack_all(Path::new(&args[2]), Path::new(&args[3]), comp, &logger)?;
-            drop(logger);
-            let _ = handle.join();
-        }
-
-        "create_diff" => {
-            if args.len() < 5 {
-                eprintln!(
-                    "Usage: SFTool create_diff <base_cff_dir> <mod_cff_dir> <out_patch.json>"
-                );
-                return Ok(());
-            }
-            let (logger, handle) = make_cli_logger();
-            cff::create_diff(
-                Path::new(&args[2]),
-                Path::new(&args[3]),
-                Path::new(&args[4]),
-                &logger,
-            )?;
-            drop(logger);
-            let _ = handle.join();
-        }
-
-        "apply_diff" => {
-            if args.len() < 4 {
-                eprintln!("Usage: SFTool apply_diff <target_cff_dir> <patch.json>");
-                return Ok(());
-            }
-            let (logger, handle) = make_cli_logger();
-            cff::apply_patch(Path::new(&args[2]), Path::new(&args[3]), &logger)?;
-            drop(logger);
-            let _ = handle.join();
-        }
-
-        "validate_cff" => {
-            if args.len() < 3 {
-                eprintln!("Usage: SFTool validate_cff <cff_dir>");
-                return Ok(());
-            }
-            let (logger, handle) = make_cli_logger();
-            let report = cff::validation::validate_cff_integrity(Path::new(&args[2]), &logger)?;
-            drop(logger);
-            let _ = handle.join();
-
-            if report.broken_references.is_empty() {
-                println!(
-                    "[+] Database integrity verified: {} tables and {} foreign keys checked. No broken links found.",
-                    report.total_tables_checked, report.total_foreign_keys_checked
-                );
-            } else {
-                println!(
-                    "[-] Database integrity check finished: found {} broken reference(s) across {} tables.",
-                    report.broken_references.len(),
-                    report.total_tables_checked
-                );
-            }
-        }
-
-        "clone_slot" => {
-            if args.len() < 5 {
-                eprintln!("Usage: SFTool clone_slot <cff_dir> <src_slot> <dst_slot>");
-                return Ok(());
-            }
-            let src = args[3].parse::<u16>().unwrap_or(1);
-            let dst = args[4].parse::<u16>().unwrap_or(5);
-            let (logger, handle) = make_cli_logger();
-            cff::clone_language_slot(Path::new(&args[2]), src, dst, &logger)?;
-            drop(logger);
-            let _ = handle.join();
-        }
-
-        "replace_slot" => {
-            if args.len() < 5 {
-                eprintln!("Usage: SFTool replace_slot <cff_dir> <target_slot> <translation.json>");
-                return Ok(());
-            }
-            let slot = args[3].parse::<u16>().unwrap_or(1);
-            let (logger, handle) = make_cli_logger();
-            cff::replace_slot_from_json(Path::new(&args[2]), slot, Path::new(&args[4]), &logger)?;
-            drop(logger);
-            let _ = handle.join();
-        }
-
         "unpack_pak" => {
             if args.len() < 4 {
                 eprintln!("Usage: SFTool unpack_pak <pak_file> <out_dir>");
@@ -912,13 +811,23 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
         "pack_pak" => {
             if args.len() < 4 {
-                eprintln!("Usage: SFTool pack_pak <src_dir> <out_pak> [fmt: sf1/sf2] [comp]");
+                eprintln!(
+                    "Usage: SFTool pack_pak <src_dir> <out_pak> [fmt: sf1/sf2] [algo: zlib/zopfli] [comp: 0-9]"
+                );
                 return Ok(());
             }
             let fmt = args.get(4).map(|s| s.as_str()).unwrap_or("sf1");
-            let comp = args.get(5).and_then(|s| s.parse::<u32>().ok()).unwrap_or(6);
+            let algo = args.get(5).map(|s| s.as_str()).unwrap_or("zlib");
+            let comp = args.get(6).and_then(|s| s.parse::<u32>().ok()).unwrap_or(6);
             let (logger, handle) = make_cli_logger();
-            pak::pack_pak(Path::new(&args[2]), Path::new(&args[3]), fmt, comp, &logger)?;
+            pak::pack_pak(
+                Path::new(&args[2]),
+                Path::new(&args[3]),
+                fmt,
+                algo,
+                comp,
+                &logger,
+            )?;
             drop(logger);
             let _ = handle.join();
         }
@@ -936,13 +845,16 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
 
         "batch_pack_pak" => {
             if args.len() < 3 {
-                eprintln!("Usage: SFTool batch_pack_pak <root_folder> [fmt: sf1/sf2] [comp]");
+                eprintln!(
+                    "Usage: SFTool batch_pack_pak <root_folder> [fmt: sf1/sf2] [algo: zlib/zopfli] [comp: 0-9]"
+                );
                 return Ok(());
             }
             let fmt = args.get(3).map(|s| s.as_str()).unwrap_or("sf1");
-            let comp = args.get(4).and_then(|s| s.parse::<u32>().ok()).unwrap_or(6);
+            let algo = args.get(4).map(|s| s.as_str()).unwrap_or("zlib");
+            let comp = args.get(5).and_then(|s| s.parse::<u32>().ok()).unwrap_or(6);
             let (logger, handle) = make_cli_logger();
-            pak::batch_pack_folders(Path::new(&args[2]), fmt, comp, &logger)?;
+            pak::batch_pack_folders(Path::new(&args[2]), fmt, algo, comp, &logger)?;
             drop(logger);
             let _ = handle.join();
         }
