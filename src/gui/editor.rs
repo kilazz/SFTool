@@ -26,6 +26,7 @@ struct PreviewTask {
     cat: String,
     id: String,
     val1: String,
+    val2: String,
 }
 
 pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
@@ -39,7 +40,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
     let preview_gen_worker = preview_generation.clone();
     let ui_w_worker = ui.as_weak();
 
-    // Background thread for texture preview decoding
+    // Background thread for texture preview & 2D collision vector rendering
     thread::spawn(move || {
         while let Ok(mut task) = preview_rx.recv() {
             while let Ok(newer) = preview_rx.try_recv() {
@@ -50,7 +51,38 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
                 continue;
             }
 
-            if task.cat.contains("0x07DC")
+            // 1. Render 2D Vector Collision Footprints (Building & Object Collisions)
+            if task.cat.contains("0x07EE") || task.cat.contains("0x0809") {
+                let coords: Vec<(i16, i16)> = task
+                    .val2
+                    .split(|c: char| c == '|' || c.is_whitespace())
+                    .filter_map(|s| {
+                        let trimmed = s.trim().trim_matches('(').trim_matches(')');
+                        let parts: Vec<&str> = trimmed.split(',').collect();
+                        if parts.len() == 2 {
+                            let x = parts[0].trim().parse::<i16>().ok()?;
+                            let y = parts[1].trim().parse::<i16>().ok()?;
+                            Some((x, y))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                let img = crate::cff::collision_render::render_collision_polygon(&coords, 96, 96);
+                if task.generation == preview_gen_worker.load(Ordering::SeqCst) {
+                    let ui_w = ui_w_worker.clone();
+                    let num_v = coords.len();
+                    let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                        ui.set_preview_icon1(crate::dds::rgba_to_slint(img));
+                        ui.set_asset_status_text(
+                            format!("Collision Polygon: {} vertices", num_v).into(),
+                        );
+                    });
+                }
+            }
+            // 2. Decode In-Memory Texture Assets (Icons, Buttons, Meshes)
+            else if task.cat.contains("0x07DC")
                 || task.cat.contains("0x0806")
                 || task.cat.contains("0x07F4")
                 || task.cat.contains("0x2335")
@@ -65,11 +97,13 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
                             ui.set_asset_status_text(format!("Loaded: {}", fname).into());
                         } else {
                             ui.set_preview_icon1(Image::default());
-                            ui.set_asset_status_text("Texture not found.".into());
+                            ui.set_asset_status_text("Texture asset not found.".into());
                         }
                     });
                 }
-            } else if task.cat.contains("0x07E2") {
+            }
+            // 3. Spells BiMap Cross-Reference (Dual Cards)
+            else if task.cat.contains("0x07E2") {
                 let spell_id = task.id.parse::<u16>().unwrap_or(0);
                 let scroll_id = task.val1.parse::<u16>().unwrap_or(0);
                 let details = cff::resolve_spell_cross_reference(&task.dir, spell_id, scroll_id);
@@ -141,7 +175,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         });
     });
 
-    // 2. Select entry
+    // 2. Select entry (populates 12-field contextual grid)
     let ui_weak_sel = ui.as_weak();
     let cache_sel = items_cache.clone();
     let p_gen_sel = preview_generation.clone();
@@ -178,7 +212,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
             let _ = ui_weak_sel.upgrade_in_event_loop(move |ui| {
                 ui.set_editor_field_id(id.clone().into());
                 ui.set_editor_field_val1(val1.clone().into());
-                ui.set_editor_field_val2(val2.into());
+                ui.set_editor_field_val2(val2.clone().into());
 
                 ui.set_editor_field_p1(p1.into());
                 ui.set_editor_field_p2(p2.into());
@@ -217,6 +251,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
                     cat,
                     id,
                     val1,
+                    val2,
                 });
             });
         }

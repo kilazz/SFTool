@@ -1,5 +1,7 @@
 // src/sav/mod.rs
 
+pub mod avatar;
+
 use crate::UiLogger;
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::read::ZlibDecoder;
@@ -93,7 +95,7 @@ pub fn inspect_and_unpack_sav(
         let target_path = out_dir.join(&chunk_filename);
         File::create(&target_path)?.write_all(&unpacked_bytes)?;
 
-        // Detect embedded CFF / SFChunkFile containers inside the unpacked chunk payload
+        // Detect embedded CFF containers inside the unpacked chunk payload
         if let Some(nested_offset) = find_nested_container_offset(&unpacked_bytes) {
             nested_containers_found += 1;
             let sub_dir = out_dir.join(format!("nested_chunk_{:04}", total_chunks));

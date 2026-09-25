@@ -2,16 +2,17 @@
 
 slint::include_modules!();
 
-mod cff;
+pub mod cff;
 mod cli;
-mod dds;
+pub mod dds;
 mod gui;
+pub mod linter;
 mod logger;
-mod lua;
-mod pak;
+pub mod lua;
+pub mod pak;
 pub mod sav;
 pub mod terrain;
-mod tools;
+pub mod tools;
 
 pub use logger::UiLogger;
 

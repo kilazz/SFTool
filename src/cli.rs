@@ -33,12 +33,15 @@ PAK & VFS Commands:
   batch_pack_pak <root_folder> [fmt: sf1|sf2] [comp: 0-9]
       Batch pack all '*_extracted' directories back into .pak files.
 
-CFF Database & SaveGame Commands:
+  create_addon <mod_files_dir> <game_data_dir> <mod_name>
+      Packs mod files into a high-priority standalone archive (sf99_<mod>.pak).
+
+CFF Database & Integrity Commands:
   unpack_cff <input_cff> <out_dir>
-      Unpack CFF container into binary chunks and export texts to JSON.
+      Unpack CFF container: extracts .dat chunks and auto-exports texts_json/ and tables_json/.
 
   pack_cff <in_dir> <out_cff> [compression_level: 0-9, default: 6]
-      Import texts from JSON into chunks and compile into a CFF container.
+      Auto-compiles tables_json/ and texts_json/ back into .dat chunks and packs CFF container.
 
   audit_coverage <cff_dir>
       Scans all 49 database chunks and verifies 100% byte-level stride integrity.
@@ -46,8 +49,17 @@ CFF Database & SaveGame Commands:
   dump_all_json <cff_dir> <out_dir>
       Decodes and exports all 27+ structured game tables into clean editable JSON files.
 
+  quest_tree <cff_dir>
+      Builds and prints an indented ASCII hierarchy tree of all campaign quests.
+
   unpack_sav <input.sav> <out_dir>
       Inspect and extract all chunks and nested containers from a savegame (.sav).
+
+  inspect_save <save.sav>
+      Reads and displays player avatar level, stats, and speeds directly from a savegame.
+
+  verify_mod <mod_dir> [asset_pak_path]
+      Pre-release mod linter: checks Lua syntax, validates texture assets, and audits DB links.
 
   create_diff <base_cff_dir> <mod_cff_dir> <out_patch.json>
       Generate a non-destructive mod diff patch between base and modified databases.
@@ -206,6 +218,94 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             }
             let (logger, handle) = make_cli_logger();
             sav::inspect_and_unpack_sav(Path::new(&args[2]), Path::new(&args[3]), &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+
+        "inspect_save" => {
+            if args.len() < 3 {
+                eprintln!("Usage: SFTool inspect_save <save.sav>");
+                return Ok(());
+            }
+            if let Some(info) = crate::sav::avatar::inspect_avatar_save(Path::new(&args[2]))? {
+                println!("[+] Hero Profile from SaveGame:");
+                println!("    Level: {} (Race ID: {})", info.level, info.race_id);
+                println!(
+                    "    Attributes: Str: {}, Sta: {}, Agi: {}, Dex: {}, Int: {}, Wis: {}, Cha: {}",
+                    info.strength,
+                    info.stamina,
+                    info.agility,
+                    info.dexterity,
+                    info.intelligence,
+                    info.wisdom,
+                    info.charisma
+                );
+                println!(
+                    "    Speeds: Walk: {}, Fight: {}, Cast: {}",
+                    info.walk_speed, info.fight_speed, info.cast_speed
+                );
+            } else {
+                println!("[-] No avatar stats found in save file.");
+            }
+        }
+
+        "verify_mod" => {
+            if args.len() < 3 {
+                eprintln!("Usage: SFTool verify_mod <mod_dir> [asset_pak_path]");
+                return Ok(());
+            }
+            let (logger, handle) = make_cli_logger();
+            let asset_src = args.get(3).map(Path::new);
+            let _ = crate::linter::verify_mod(Path::new(&args[2]), asset_src, &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+
+        "quest_tree" => {
+            if args.len() < 3 {
+                eprintln!("Usage: SFTool quest_tree <cff_dir>");
+                return Ok(());
+            }
+            let (logger, handle) = make_cli_logger();
+            crate::cff::quests::print_quest_ascii_tree(Path::new(&args[2]), &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+
+        "create_addon" => {
+            if args.len() < 5 {
+                eprintln!("Usage: SFTool create_addon <mod_files_dir> <game_data_dir> <mod_name>");
+                return Ok(());
+            }
+            let (logger, handle) = make_cli_logger();
+            let _ = crate::pak::addon::build_addon_mod_pak(
+                Path::new(&args[2]),
+                Path::new(&args[3]),
+                &args[4],
+                &logger,
+            )?;
+            drop(logger);
+            let _ = handle.join();
+        }
+
+        "audit_coverage" => {
+            if args.len() < 3 {
+                eprintln!("Usage: SFTool audit_coverage <cff_dir>");
+                return Ok(());
+            }
+            let (logger, handle) = make_cli_logger();
+            cff::dump::audit_coverage(Path::new(&args[2]), &logger)?;
+            drop(logger);
+            let _ = handle.join();
+        }
+
+        "dump_all_json" => {
+            if args.len() < 4 {
+                eprintln!("Usage: SFTool dump_all_json <cff_dir> <out_dir>");
+                return Ok(());
+            }
+            let (logger, handle) = make_cli_logger();
+            cff::dump::dump_all_json(Path::new(&args[2]), Path::new(&args[3]), &logger)?;
             drop(logger);
             let _ = handle.join();
         }
@@ -655,28 +755,6 @@ pub fn handle_cli(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             let comp = args.get(4).and_then(|s| s.parse::<u32>().ok()).unwrap_or(6);
             let (logger, handle) = make_cli_logger();
             cff::pack_all(Path::new(&args[2]), Path::new(&args[3]), comp, &logger)?;
-            drop(logger);
-            let _ = handle.join();
-        }
-
-        "audit_coverage" => {
-            if args.len() < 3 {
-                eprintln!("Usage: SFTool audit_coverage <cff_dir>");
-                return Ok(());
-            }
-            let (logger, handle) = make_cli_logger();
-            cff::dump::audit_coverage(Path::new(&args[2]), &logger)?;
-            drop(logger);
-            let _ = handle.join();
-        }
-
-        "dump_all_json" => {
-            if args.len() < 4 {
-                eprintln!("Usage: SFTool dump_all_json <cff_dir> <out_dir>");
-                return Ok(());
-            }
-            let (logger, handle) = make_cli_logger();
-            cff::dump::dump_all_json(Path::new(&args[2]), Path::new(&args[3]), &logger)?;
             drop(logger);
             let _ = handle.join();
         }

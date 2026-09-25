@@ -1,5 +1,6 @@
 // src/pak/mod.rs
 
+pub mod addon;
 pub mod sf1;
 pub mod sf2;
 pub mod vfs_tree;

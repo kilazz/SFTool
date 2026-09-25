@@ -1,11 +1,13 @@
 // src/cff/mod.rs
 
+pub mod collision_render;
 pub mod container;
 pub mod diff;
 pub mod dump;
 pub mod editor;
 pub mod formulas;
 pub mod localization;
+pub mod quests;
 pub mod references;
 pub mod sf1;
 pub mod sf1_schema;
