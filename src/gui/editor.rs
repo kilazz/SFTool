@@ -296,7 +296,54 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         });
     });
 
-    // 4. Undo
+    // 4. Load Quest Node Graph
+    let ui_w_graph = ui.as_weak();
+    let log_graph = logger.clone();
+    ui.on_load_quest_graph(move |cff_dir| {
+        let dir = PathBuf::from(cff_dir.as_str());
+        let ui_w = ui_w_graph.clone();
+        let log = log_graph.clone();
+
+        thread::spawn(move || {
+            if let Ok((nodes, edges)) = crate::cff::quests::build_quest_graph_layout(&dir, &log) {
+                let slint_nodes: Vec<crate::GraphNodeData> = nodes
+                    .into_iter()
+                    .map(|n| crate::GraphNodeData {
+                        id: n.id,
+                        title: n.title.into(),
+                        subtitle: n.subtitle.into(),
+                        is_main: n.is_main,
+                        x: n.x,
+                        y: n.y,
+                        width: n.width,
+                        height: n.height,
+                        record_index: n.record_index,
+                    })
+                    .collect();
+
+                let slint_edges: Vec<crate::GraphEdgeData> = edges
+                    .into_iter()
+                    .map(|e| crate::GraphEdgeData {
+                        from_x: e.from_x,
+                        from_y: e.from_y,
+                        to_x: e.to_x,
+                        to_y: e.to_y,
+                    })
+                    .collect();
+
+                let count = slint_nodes.len();
+                let _ = ui_w.upgrade_in_event_loop(move |ui| {
+                    ui.set_graph_nodes(ModelRc::from(Rc::new(VecModel::from(slint_nodes))));
+                    ui.set_graph_edges(ModelRc::from(Rc::new(VecModel::from(slint_edges))));
+                    ui.set_status_msg(
+                        format!("Generated Quest Graph with {} nodes.", count).into(),
+                    );
+                });
+            }
+        });
+    });
+
+    // 5. Undo
     let u_act = undo_stack.clone();
     let r_act = redo_stack.clone();
     let ui_w_undo = ui.as_weak();
@@ -327,7 +374,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         }
     });
 
-    // 5. Redo
+    // 6. Redo
     let u_redo = undo_stack;
     let r_redo = redo_stack;
     let ui_w_redo = ui.as_weak();
@@ -358,7 +405,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         }
     });
 
-    // 6. Record Operations: Add, Duplicate, Delete
+    // 7. Record Operations: Add, Duplicate, Delete
     let log_add = logger.clone();
     let ui_w_add = ui.as_weak();
     ui.on_add_editor_entry(move |cff_dir, cat| {
@@ -419,7 +466,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         );
     });
 
-    // 7. Multi-Language Slot Tools
+    // 8. Multi-Language Slot Tools
     let log_exp = logger.clone();
     ui.on_export_single_language(move |cff_dir, lang, out_json| {
         let dir = PathBuf::from(cff_dir.as_str());
@@ -442,7 +489,7 @@ pub fn register_editor_callbacks(ui: &AppWindow, logger: UiLogger) {
         });
     });
 
-    // 8. Language Slot Clone Wizard
+    // 9. Language Slot Clone Wizard
     let log_wizard = logger;
     let ui_w_wizard = ui.as_weak();
     ui.on_execute_clone_language(move |cff_dir, src, dst, tag, out_json| {

@@ -16,6 +16,25 @@ import {
     FormRow,
 } from "../components/common.slint";
 
+export struct GraphNodeData {
+    id: int,
+    title: string,
+    subtitle: string,
+    is_main: bool,
+    x: length,
+    y: length,
+    width: length,
+    height: length,
+    record_index: int,
+}
+
+export struct GraphEdgeData {
+    from_x: length,
+    from_y: length,
+    to_x: length,
+    to_y: length,
+}
+
 component InspectorCell {
     in property <string> label: "";
     in-out property <string> value: "";
@@ -120,6 +139,16 @@ export component EditorTab inherits HorizontalLayout {
     in-out property <string> editor_label_p11: "";
     in-out property <string> editor_label_p12: "";
 
+    // View Mode Switcher: 0 = Table List, 1 = UE5 Node Graph
+    in-out property <int> editor_view_mode: 0;
+
+    // Node Graph Properties
+    in-out property <[GraphNodeData]> graph_nodes: [];
+    in-out property <[GraphEdgeData]> graph_edges: [];
+    in-out property <length> canvas_pan_x: 0px;
+    in-out property <length> canvas_pan_y: 0px;
+    in-out property <int> selected_node_id: -1;
+
     // Visual Previews & Dual Cards
     in-out property <image> preview_icon1;
     in-out property <image> preview_icon2;
@@ -146,6 +175,8 @@ export component EditorTab inherits HorizontalLayout {
     callback add_editor_entry(string, string);
     callback duplicate_editor_entry(string, string, int, string);
     callback delete_editor_entry(string, string, int, string);
+
+    callback load_quest_graph(string);
 
     // History Callbacks (Undo / Redo)
     callback editor_undo();
@@ -252,7 +283,7 @@ export component EditorTab inherits HorizontalLayout {
         }
     }
 
-    // LEFT PANEL: BROWSER & LIST
+    // LEFT PANEL: BROWSER, CONTROLS & DUAL-MODE VIEW
     Rectangle {
         width: root.sidebar_width;
         background: #2b2d31;
@@ -298,48 +329,6 @@ export component EditorTab inherits HorizontalLayout {
                     }
 
                     FormRow {
-                        title: "Asset Source:";
-                        HorizontalLayout {
-                            spacing: 4px;
-                            LineEdit {
-                                text <=> root.editor_asset_source;
-                                placeholder-text: "Optional: .pak file or textures folder...";
-                                height: 28px;
-                                font-family: "Consolas";
-                                font-size: 11px;
-                            }
-
-                            CustomButton {
-                                text: "📁";
-                                compact: true;
-                                width: 28px;
-                                height: 28px;
-                                clicked => {
-                                    let f = root.browse_folder();
-                                    if (f != "") {
-                                        root.editor_asset_source = f;
-                                        root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, root.editor_lang_filter);
-                                    }
-                                }
-                            }
-
-                            CustomButton {
-                                text: "📦";
-                                compact: true;
-                                width: 28px;
-                                height: 28px;
-                                clicked => {
-                                    let f = root.browse_file("pak");
-                                    if (f != "") {
-                                        root.editor_asset_source = f;
-                                        root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, root.editor_lang_filter);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    FormRow {
                         title: "Category:";
                         ComboBox {
                             model: root.available_categories;
@@ -348,19 +337,9 @@ export component EditorTab inherits HorizontalLayout {
                             selected(cat) => {
                                 root.editor_active_category = cat;
                                 root.load_editor_data(root.editor_cff_dir, cat, root.editor_filter, root.editor_lang_filter);
-                            }
-                        }
-                    }
-
-                    if root.editor_active_category == "Localized Strings": FormRow {
-                        title: "Language:";
-                        ComboBox {
-                            model: root.available_languages;
-                            current-value <=> root.editor_lang_filter;
-                            height: 28px;
-                            selected(lang) => {
-                                root.editor_lang_filter = lang;
-                                root.load_editor_data(root.editor_cff_dir, root.editor_active_category, root.editor_filter, lang);
+                                if (cat == "Quests (0x080D)" && root.editor_view_mode == 1) {
+                                    root.load_quest_graph(root.editor_cff_dir);
+                                }
                             }
                         }
                     }
@@ -382,10 +361,32 @@ export component EditorTab inherits HorizontalLayout {
             }
 
             PanelSection {
-                title: "Parsed Records (" + root.editor_entries.length + " entries)";
+                title: "View Modes & Records (" + root.editor_entries.length + " entries)";
                 VerticalLayout {
                     spacing: 8px;
                     vertical-stretch: 1;
+
+                    // MODE SWITCHER: Table vs Node Graph
+                    HorizontalLayout {
+                        spacing: 6px;
+                        height: 28px;
+
+                        CustomButton {
+                            text: "📋 Table";
+                            primary-color: root.editor_view_mode == 0 ? #3e6a90 : #232529;
+                            clicked => { root.editor_view_mode = 0; }
+                        }
+
+                        CustomButton {
+                            text: "🕸️ Node Graph (UE5)";
+                            primary-color: root.editor_view_mode == 1 ? #8a5cf6 : #232529;
+                            enabled: root.editor_active_category == "Quests (0x080D)";
+                            clicked => {
+                                root.editor_view_mode = 1;
+                                root.load_quest_graph(root.editor_cff_dir);
+                            }
+                        }
+                    }
 
                     // Action Controls: Add, Duplicate, Delete
                     HorizontalLayout {
@@ -426,43 +427,8 @@ export component EditorTab inherits HorizontalLayout {
                         }
                     }
 
-                    // Unified Language Slot Management Tools
-                    if root.editor_active_category == "Localized Strings": HorizontalLayout {
-                        spacing: 6px;
-                        CustomButton {
-                            text: "🌐 Clone Slot...";
-                            primary-color: #3e6a90;
-                            enabled: root.editor_cff_dir != "";
-                            clicked => { clone_popup.show(); }
-                        }
-
-                        CustomButton {
-                            text: "Export Lang JSON...";
-                            primary-color: #4e5058;
-                            enabled: root.editor_cff_dir != "";
-                            clicked => {
-                                let target_f = root.save_file("json");
-                                if (target_f != "") {
-                                    root.export_single_language(root.editor_cff_dir, root.editor_lang_filter, target_f);
-                                }
-                            }
-                        }
-
-                        CustomButton {
-                            text: "Import to Slot...";
-                            primary-color: #4e5058;
-                            enabled: root.editor_cff_dir != "";
-                            clicked => {
-                                let src_f = root.browse_file("json");
-                                if (src_f != "") {
-                                    root.import_language_to_slot(root.editor_cff_dir, root.editor_lang_filter, src_f);
-                                }
-                            }
-                        }
-                    }
-
-                    // Virtual List
-                    Rectangle {
+                    // VIEW 0: Table List View
+                    if root.editor_view_mode == 0: Rectangle {
                         background: #111214;
                         border-color: #1f2023;
                         border-width: 1px;
@@ -493,6 +459,137 @@ export component EditorTab inherits HorizontalLayout {
                                         root.editor_selected_idx = index;
                                         root.select_editor_entry(index);
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    // VIEW 1: Node Graph Canvas (Pan & Zoomable)
+                    if root.editor_view_mode == 1: Rectangle {
+                        background: #111214;
+                        border-color: #8a5cf6;
+                        border-width: 1.5px;
+                        border-radius: 4px;
+                        vertical-stretch: 1;
+                        clip: true;
+
+                        // Canvas Draggable Container
+                        Rectangle {
+                            x: root.canvas_pan_x;
+                            y: root.canvas_pan_y;
+
+                            // 1. Connection Cables (Elbow / Orthogonal Lines)
+                            for edge in root.graph_edges: Rectangle {
+                                // Horizontal 1
+                                Rectangle {
+                                    x: edge.from-x;
+                                    y: edge.from-y - 1px;
+                                    width: (edge.to-x - edge.from-x) / 2;
+                                    height: 2px;
+                                    background: #4e5058;
+                                }
+                                // Vertical
+                                Rectangle {
+                                    x: edge.from-x + (edge.to-x - edge.from-x) / 2;
+                                    y: Math.min(edge.from-y, edge.to-y) - 1px;
+                                    width: 2px;
+                                    height: Math.abs(edge.to-y - edge.from-y) + 2px;
+                                    background: #4e5058;
+                                }
+                                // Horizontal 2
+                                Rectangle {
+                                    x: edge.from-x + (edge.to-x - edge.from-x) / 2;
+                                    y: edge.to-y - 1px;
+                                    width: (edge.to-x - edge.from-x) / 2;
+                                    height: 2px;
+                                    background: #4e5058;
+                                }
+                            }
+
+                            // 2. Interactive Node Cards
+                            for node in root.graph_nodes: Rectangle {
+                                x: node.x;
+                                y: node.y;
+                                width: node.width;
+                                height: node.height;
+                                background: #1e1f22;
+                                border-radius: 6px;
+                                border-width: root.selected_node_id == node.id ? 2px : 1px;
+                                border-color: root.selected_node_id == node.id ? #f0b132 : (node.is_main ? #e59535 : #3e6a90);
+
+                                VerticalLayout {
+                                    // Colored Header Pin Bar
+                                    Rectangle {
+                                        height: 20px;
+                                        background: node.is_main ? #995511 : #224466;
+                                        border-top-left-radius: 5px;
+                                        border-top-right-radius: 5px;
+
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            Text {
+                                                text: (node.is_main ? "⭐ [MAIN] " : "🔷 [SIDE] ") + node.title;
+                                                font-size: 10px;
+                                                font-weight: 700;
+                                                color: #ffffff;
+                                                vertical-alignment: center;
+                                                overflow: elide;
+                                            }
+                                        }
+                                    }
+
+                                    // Node Body
+                                    VerticalLayout {
+                                        padding: 6px;
+                                        alignment: center;
+                                        Text {
+                                            text: node.subtitle;
+                                            font-size: 9px;
+                                            font-family: "Consolas";
+                                            color: #cfcfcf;
+                                            overflow: elide;
+                                        }
+                                    }
+                                }
+
+                                // Left Pin (Input)
+                                Rectangle {
+                                    x: -4px;
+                                    y: (parent.height - self.height) / 2;
+                                    width: 8px;
+                                    height: 8px;
+                                    border-radius: 4px;
+                                    background: #3e6a90;
+                                }
+
+                                // Right Pin (Output)
+                                Rectangle {
+                                    x: parent.width - 4px;
+                                    y: (parent.height - self.height) / 2;
+                                    width: 8px;
+                                    height: 8px;
+                                    border-radius: 4px;
+                                    background: #f0b132;
+                                }
+
+                                TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.selected_node_id = node.id;
+                                        root.editor_selected_idx = node.record_index;
+                                        root.select_editor_entry(node.record_index);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Canvas Pan/Drag Area
+                        TouchArea {
+                            moved => {
+                                if self.pressed {
+                                    root.canvas_pan_x += self.mouse-x - self.pressed-x;
+                                    root.canvas_pan_y += self.mouse-y - self.pressed-y;
                                 }
                             }
                         }
@@ -701,7 +798,7 @@ export component EditorTab inherits HorizontalLayout {
                     }
                 }
 
-                // B. LIVE PREVIEW FOR ICONS & ASSETS
+                // B. LIVE PREVIEW FOR ICONS, ASSETS & VECTOR POLYGONS
                 if root.editor_active_category != "Spells Mapping (0x07E2)" && root.editor_active_category != "Localized Strings": HorizontalLayout {
                     spacing: 12px;
                     alignment: start;
@@ -905,9 +1002,9 @@ export component EditorTab inherits HorizontalLayout {
 
                 Text {
                     text: "Structured Studio Inspector Guide:\n" +
-                        "• Dedicated Field Inputs: All attributes, costs, and combat curves are cleanly isolated into dedicated parameters.\n" +
-                        "• Weapon DPS & Loot Odds: Live dynamic calculator instantly derives DPS and cascading chest chances.\n" +
-                        "• RTS Research Costs: Edit tech tree upgrades with isolated resource amounts across all 7 game goods.\n" +
+                        "• Node Graph Navigation: Switch between 📋 Table and 🕸️ Node Graph for visual branching.\n" +
+                        "• Pan & Drag Canvas: Hold and drag anywhere on the canvas to explore large quest trees.\n" +
+                        "• Click to Inspect: Selecting any node instantly loads its parameters into this inspector.\n" +
                         "• ↶ Undo / ↷ Redo: Safely revert or reapply changes made during the current editing session.";
                     color: #808080;
                     font-size: 11px;

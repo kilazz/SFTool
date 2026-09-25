@@ -8,7 +8,11 @@ import { TabButton } from "./components/buttons.slint";
 // IMPORT MODULAR TABS
 import { PakTab } from "./tabs/pak_tab.slint";
 import { CffTab } from "./tabs/cff_tab.slint";
-import { EditorTab } from "./tabs/editor_tab.slint";
+import {
+    EditorTab,
+    GraphNodeData,
+    GraphEdgeData,
+} from "./tabs/editor_tab.slint";
 import { LuaTab } from "./tabs/lua_tab.slint";
 import { LogTab } from "./tabs/log_tab.slint";
 
@@ -114,6 +118,16 @@ export component AppWindow inherits Window {
     in-out property <string> editor_label_p11: "";
     in-out property <string> editor_label_p12: "";
 
+    // View Mode Switcher: 0 = Table List, 1 = Node Graph
+    in-out property <int> editor_view_mode: 0;
+
+    // Node Graph Properties
+    in-out property <[GraphNodeData]> graph_nodes: [];
+    in-out property <[GraphEdgeData]> graph_edges: [];
+    in-out property <length> canvas_pan_x: 0px;
+    in-out property <length> canvas_pan_y: 0px;
+    in-out property <int> selected_node_id: -1;
+
     // Visual Previews & Dual Cards
     in-out property <image> preview_icon1;
     in-out property <image> preview_icon2;
@@ -173,20 +187,21 @@ export component AppWindow inherits Window {
     callback archive_item_clicked(int);
     callback load_archive_tree(string);
 
-    // Callbacks: CFF & Diff Engine
+    // Callbacks: CFF & Integrity Audit
     callback unpack_cff(string, string);
     callback pack_cff(string, string, int);
     callback audit_cff_coverage(string);
     callback create_cff_diff(string, string, string);
     callback apply_cff_patch(string, string);
 
-    // Callbacks: Balance Editor
+    // Callbacks: Balance Editor & Graph
     callback load_editor_data(string, string, string, string);
     callback select_editor_entry(int);
     callback save_editor_entry(string, string, int, [string]);
     callback add_editor_entry(string, string);
     callback duplicate_editor_entry(string, string, int, string);
     callback delete_editor_entry(string, string, int, string);
+    callback load_quest_graph(string);
     callback editor_undo();
     callback editor_redo();
     callback export_single_language(string, string, string);
@@ -349,6 +364,13 @@ export component AppWindow inherits Window {
                 editor_label_p11 <=> root.editor_label_p11;
                 editor_label_p12 <=> root.editor_label_p12;
 
+                editor_view_mode <=> root.editor_view_mode;
+                graph_nodes <=> root.graph_nodes;
+                graph_edges <=> root.graph_edges;
+                canvas_pan_x <=> root.canvas_pan_x;
+                canvas_pan_y <=> root.canvas_pan_y;
+                selected_node_id <=> root.selected_node_id;
+
                 preview_icon1 <=> root.preview_icon1;
                 preview_icon2 <=> root.preview_icon2;
                 spell_name_disp <=> root.spell_name_disp;
@@ -366,6 +388,7 @@ export component AppWindow inherits Window {
                 add_editor_entry(dir, cat) => { root.add_editor_entry(dir, cat) }
                 duplicate_editor_entry(dir, cat, idx, id) => { root.duplicate_editor_entry(dir, cat, idx, id) }
                 delete_editor_entry(dir, cat, idx, id) => { root.delete_editor_entry(dir, cat, idx, id) }
+                load_quest_graph(dir) => { root.load_quest_graph(dir) }
                 editor_undo => { root.editor_undo() }
                 editor_redo => { root.editor_redo() }
                 export_single_language(dir, lang, out) => { root.export_single_language(dir, lang, out) }
