@@ -15,8 +15,6 @@ Features
 
 🗄️ CFF Database & JSON Pipeline
 
-  - 100% Stride Coverage: All 49 SF1 database chunks fully mapped with 0
-    unmapped bytes.
   - Automated Round-Trip:
       - unpack_cff: extracts .dat chunks \to auto-exports texts_json/ (strings)
         and tables_json/ (all 27+ structured tables in clean JSON).
