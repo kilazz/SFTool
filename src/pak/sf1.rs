@@ -258,7 +258,7 @@ pub fn pack_sf1(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Resul
     let mut file_table = Vec::with_capacity(file_entries.len() * 16);
     let mut current_offset = 0u32;
 
-    // Реестр дедупликации: (размер, SHA-256) -> offset в секции данных
+    // Deduplication registry: (size, SHA-256) -> offset in data section
     let mut seen_payloads: HashMap<(u32, [u8; 32]), u32> = HashMap::new();
     let mut dedup_count = 0usize;
     let mut saved_bytes = 0u64;
@@ -282,7 +282,7 @@ pub fn pack_sf1(src_dir: &Path, out_file: &Path, logger: &UiLogger) -> io::Resul
             let hash: [u8; 32] = hasher.finalize().into();
 
             if let Some(&existing_offset) = seen_payloads.get(&(size, hash)) {
-                // Переиспользуем смещение уже существующего идентичного блока
+                // Reuse the offset of an already existing identical block
                 dedup_count += 1;
                 saved_bytes += size as u64;
                 (size, existing_offset)

@@ -1,13 +1,13 @@
 // src/cff/formulas.rs
 
-/// Расчёт чистого урона в секунду (DPS) для оружия (Категория 2015 / 0x07DF)
+/// Calculates raw damage per second (DPS) for weapons (Category 2015 / 0x07DF).
 pub fn calculate_weapon_dps(min_damage: u16, max_damage: u16, weapon_speed: u16) -> f32 {
     let mean = (min_damage as f32 + max_damage as f32) / 2.0;
     let ratio = weapon_speed as f32 / 100.0;
     mean * ratio
 }
 
-/// Расчёт суммарного опыта с учётом кривой затухания (Категория 2024 / 0x07E8)
+/// Calculates cumulative experience points considering the falloff curve (Category 2024 / 0x07E8).
 pub fn calculate_total_xp(xp_gain: u32, xp_falloff: u16, max_kills: usize) -> u64 {
     if xp_gain == 0 || xp_falloff == 0 {
         return 0;
@@ -21,7 +21,7 @@ pub fn calculate_total_xp(xp_gain: u32, xp_falloff: u16, max_kills: usize) -> u6
     total_xp
 }
 
-/// Расчёт каскадных эффективных шансов выпадения лута (Категории 2040 и 2065)
+/// Calculates cascading effective loot drop chances (Categories 2040 and 2065).
 pub fn calculate_cascade_loot_chances(chance1: u8, chance2: u8) -> (f32, f32, f32) {
     let c1 = chance1 as f32;
     let c2 = (chance2 as f32) * (1.0 - c1 / 100.0);
@@ -29,7 +29,7 @@ pub fn calculate_cascade_loot_chances(chance1: u8, chance2: u8) -> (f32, f32, f3
     (c1, c2, c3)
 }
 
-/// Расчёт реального запаса здоровья и маны юнита с учётом уровня (Категории 2005 и 2048)
+/// Calculates actual unit health and mana pools based on attributes and scaling factors (Categories 2005 and 2048).
 pub fn calculate_health_and_mana(
     stamina: u16,
     wisdom: u16,
@@ -42,7 +42,7 @@ pub fn calculate_health_and_mana(
 }
 
 // -----------------------------------------------------------------------------
-// ДЕКОДЕРЫ И ФОРМАТТЕРЫ БИТОВЫХ МАСОК
+// BITMASK DECODERS AND FORMATTERS
 // -----------------------------------------------------------------------------
 
 pub const RACE_FLAGS: [&str; 8] = [

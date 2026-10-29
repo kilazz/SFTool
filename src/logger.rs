@@ -17,7 +17,7 @@ impl UiLogger {
     }
 }
 
-/// Создает логгер для консольного режима с синхронным выводом в stdout
+/// Creates a logger for console mode with synchronous output to stdout.
 pub fn make_cli_logger() -> (UiLogger, thread::JoinHandle<()>) {
     let (tx, rx) = mpsc::channel::<String>();
     let handle = thread::spawn(move || {
