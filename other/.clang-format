@@ -1,0 +1,78 @@
+# =====================================================================
+# Clang-Format Configuration
+# =====================================================================
+BasedOnStyle: Microsoft
+Language: Cpp
+
+# ---------------------------------------------------------------------
+# Indentation, Spacing & Line Width
+# ---------------------------------------------------------------------
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+
+# ---------------------------------------------------------------------
+# Column Alignment (Assignments, Declarations, Macros & Comments)
+# ---------------------------------------------------------------------
+# Aligns '=' operators across consecutive assignment statements and state blocks
+AlignConsecutiveAssignments:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: true
+  AlignCompound: false
+  PadOperators: true
+
+# Aligns variable names and types across consecutive variable declarations
+AlignConsecutiveDeclarations:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: true
+
+# Aligns constant values across consecutive #define macro directives
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: true
+
+# Aligns trailing comments ('//') to a uniform column across consecutive lines
+AlignTrailingComments: true
+
+# Aligns function call arguments and wrapped expression operands
+AlignAfterOpenBracket: Align
+AlignOperands: Align
+
+# ---------------------------------------------------------------------
+# Brace Placement
+# ---------------------------------------------------------------------
+BreakBeforeBraces: Allman
+
+# Prevent collapsing short blocks or functions into a single line
+AllowShortBlocksOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+
+# ---------------------------------------------------------------------
+# Operator & Parenthesis Spacing
+# ---------------------------------------------------------------------
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: false
+SpacesInAngles: false
+SpacesInContainerLiterals: false
+SpacesInParentheses: false
+SpacesInSquareBrackets: false
+
+# ---------------------------------------------------------------------
+# Empty Line Handling
+# ---------------------------------------------------------------------
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+
+# ---------------------------------------------------------------------
+# Language-Specific Grammar Rules
+# ---------------------------------------------------------------------
+IndentCaseLabels: true
+PointerAlignment: Right
